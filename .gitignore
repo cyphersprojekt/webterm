@@ -1,0 +1,21 @@
+# dependencias
+node_modules/
+
+# datos locales: usuarios (hashes), layouts y auditoría. NUNCA subir
+data/
+
+# logs y temporales
+*.log
+npm-debug.log*
+*.swp
+*.swo
+.DS_Store
+
+# secretos / configuración local
+.env
+.env.*
+*.pem
+*.key
+
+# herramientas
+.claude/settings.local.json

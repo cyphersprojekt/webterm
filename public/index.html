@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1e1f29">
+<title>webterm</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/favicon.svg">
+<link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="app">
+<header id="top">
+  <div class="brand"><img src="/favicon.svg" alt="" width="24" height="24"></div>
+  <div id="tabs"></div>
+  <button data-act="newSession" title="Nueva sesión (Ctrl+Alt+T)" aria-label="Nueva sesión"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button data-act="splitRight" title="Dividir lateral (Ctrl+Alt+R)" aria-label="Dividir lateral"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg></button>
+  <button data-act="splitDown" title="Dividir horizontal (Ctrl+Alt+D)" aria-label="Dividir horizontal"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg></button>
+  <button data-act="menu" title="Más" aria-label="Menú"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+</header>
+<div id="menu" hidden>
+  <button data-act="closePane">Cerrar panel</button>
+  <button data-act="renameSession">Renombrar sesión</button>
+  <button data-act="paste">Pegar texto…</button>
+  <button data-act="fontUp">Fuente +</button>
+  <button data-act="fontDown">Fuente −</button>
+  <button data-act="logout">Salir</button>
+</div>
+<main id="stage"></main>
+<footer id="keys">
+  <button data-key="\x1b">Esc</button>
+  <button data-key="\t">Tab</button>
+  <button data-mod="ctrl">Ctrl</button>
+  <button data-mod="alt">Alt</button>
+  <button data-key="\x1b[D">←</button>
+  <button data-key="\x1b[B">↓</button>
+  <button data-key="\x1b[A">↑</button>
+  <button data-key="\x1b[C">→</button>
+  <button data-key="\x1b[H">Home</button>
+  <button data-key="\x1b[F">End</button>
+  <button data-key="\x1b[5~">PgUp</button>
+  <button data-key="\x1b[6~">PgDn</button>
+  <button data-key="|">|</button>
+  <button data-key="~">~</button>
+  <button data-key="/">/</button>
+  <button data-key="-">-</button>
+  <button data-key="\x03">^C</button>
+  <button data-key="\x04">^D</button>
+</footer>
+<div id="status" hidden></div>
+<dialog id="pasteDlg">
+  <form method="dialog">
+    <textarea id="pasteTxt" rows="5" placeholder="Pegá acá el texto"></textarea>
+    <div><button value="cancel">Cancelar</button><button value="ok">Enviar</button></div>
+  </form>
+</dialog>
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/fit/lib/addon-fit.js"></script>
+<script src="/vendor/links/lib/addon-web-links.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

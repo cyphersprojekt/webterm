@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>webterm</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/favicon.svg">
+<meta name="theme-color" content="#1e1f29">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="login">
+<form id="f" autocomplete="on">
+  <img src="/favicon.svg" alt="" width="64" height="64">
+  <h1>webterm</h1>
+  <p class="sub">Acceso a la terminal</p>
+  <input name="user" placeholder="Usuario" autocomplete="username" autocapitalize="none" required autofocus>
+  <input name="password" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+  <button type="submit">Entrar</button>
+  <p id="err"></p>
+</form>
+<script src="/login.js"></script>
+</body>
+</html>

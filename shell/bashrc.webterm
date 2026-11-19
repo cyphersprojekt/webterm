@@ -1,0 +1,23 @@
+# rcfile que usa webterm: carga tu ~/.bashrc y agrega un hook que reporta cada comando al servidor.
+[ -f ~/.bashrc ] && . ~/.bashrc
+# Para auditar, el historial de las shells de webterm no debe omitir nada (ni repetidos ni líneas con espacio inicial)
+HISTCONTROL= HISTIGNORE=
+set -o history
+__wt_n=
+__wt_hook() {
+  local h c n
+  h=$(HISTTIMEFORMAT= builtin history 1) || return
+  h=${h#"${h%%[![:space:]]*}"}      # quita espacios iniciales
+  n=${h%%[[:space:]]*}              # número de historial
+  [ "$n" = "$__wt_n" ] && return    # Enter vacío o repetido: no re-loguear
+  __wt_n=$n
+  c=${h#"$n"}; c=${c#"${c%%[![:space:]]*}"}
+  [ -n "$WEBTERM_NONCE" ] && printf '\e]777;wt:%s;%s\a' "$WEBTERM_NONCE" "$(printf %s "$c" | base64 -w0)"
+}
+if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+  PROMPT_COMMAND=(__wt_hook "${PROMPT_COMMAND[@]}")
+else
+  PROMPT_COMMAND="__wt_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+fi
+# no loguear la última entrada del historial de sesiones anteriores
+__wt_h=$(HISTTIMEFORMAT= builtin history 1); __wt_h=${__wt_h#"${__wt_h%%[![:space:]]*}"}; __wt_n=${__wt_h%%[[:space:]]*}; unset __wt_h
