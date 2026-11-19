@@ -75,3 +75,4 @@ dialog div { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
 @media (max-width: 600px) { .brand { display:none; } }
 @media (hover: hover) and (pointer: fine) { #keys { display:none; } } /* con mouse+teclado no hace falta la barra táctil */
 #stage > .pane { height:100%; width:100%; } /* sesión con un solo panel */
+.pane { touch-action: none; } /* los gestos de arrastre los maneja app.js (scroll táctil) */

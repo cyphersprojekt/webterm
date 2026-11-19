@@ -64,18 +64,68 @@ function createPaneView(id) {
     ta.setAttribute('data-gramm', 'false');
     if (COARSE) { // la entrada táctil va por nuestro propio campo (ver setupIme)
       ta.readOnly = true; ta.inputMode = 'none';
-      ta.addEventListener('focus', () => ime && ime.focus());
+      ta.addEventListener('focus', () => { if (kbWanted && ime) ime.focus(); else ta.blur(); }); // el teclado solo se abre con su botón
     }
   }
   const pane = { id, el, term, fit, ws: null, retry: 0, dead: false };
   term.onData((d) => send(pane, applyMods(d)));
   term.onResize(({ cols, rows }) => wsSend(pane, { t: 'r', c: cols, r: rows }));
   term.attachCustomKeyEventHandler((e) => shortcut(e));
-  el.addEventListener('pointerdown', () => focusPane(id), true);
+  el.addEventListener('pointerdown', (e) => {
+    if (COARSE && e.pointerType === 'touch') { e.preventDefault(); lastPaneTap = performance.now(); } // tocar un panel lo selecciona, sin tocar el teclado
+    focusPane(id);
+  }, true);
+  enableTouchScroll(pane);
   new ResizeObserver(() => refit(pane)).observe(el);
   panes.set(id, pane);
   connect(pane);
   return pane;
+}
+// Scroll táctil: arrastre vertical. Historial normal → term.scrollLines; pantalla alternativa (less, vim) o
+// reporte de mouse (Claude Code, tmux) → eventos de rueda, que xterm.js traduce a flechas o a secuencias de mouse.
+function enableTouchScroll(pane) {
+  const el = pane.el;
+  let y0 = null, last = 0, acc = 0, moved = false, vel = 0, lastT = 0, raf = 0;
+  const lineH = () => Math.max(8, (el.clientHeight || 300) / (pane.term.rows || 24));
+  const wheel = (lines, x, y) => {
+    const t = pane.term;
+    // historial normal sin reporte de mouse: scroll directo del buffer
+    if (t.buffer.active.type === 'normal' && t.modes.mouseTrackingMode === 'none') { t.scrollLines(lines); return; }
+    const target = el.querySelector('.xterm-screen'); if (!target) return;
+    for (let i = 0; i < Math.min(Math.abs(lines), 30); i++)
+      target.dispatchEvent(new WheelEvent('wheel', { deltaY: Math.sign(lines), deltaMode: 1, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+  };
+  el.addEventListener('touchstart', (e) => {
+    cancelAnimationFrame(raf);
+    if (e.touches.length !== 1) { y0 = null; return; }
+    y0 = last = e.touches[0].clientY; acc = 0; moved = false; vel = 0; lastT = e.timeStamp;
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (y0 === null || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (!moved && Math.abs(t.clientY - y0) < 8) return; // umbral: un toque no es un scroll
+    moved = true; e.preventDefault();
+    const dy = last - t.clientY; last = t.clientY;     // dedo hacia abajo → contenido anterior
+    const dt = Math.max(1, e.timeStamp - lastT); lastT = e.timeStamp; vel = 0.8 * vel + 0.2 * (dy / dt);
+    acc += dy;
+    const n = Math.trunc(acc / lineH());
+    if (n) { acc -= n * lineH(); wheel(n, t.clientX, t.clientY); }
+  }, { passive: false });
+  const end = (e) => {
+    if (y0 === null || !moved) { y0 = null; return; }
+    y0 = null;
+    const t = e.changedTouches[0]; let v = vel * 16; // px por frame
+    const fling = () => { // inercia
+      if (Math.abs(v) < 0.5) return;
+      acc += v; v *= 0.94;
+      const n = Math.trunc(acc / lineH());
+      if (n) { acc -= n * lineH(); wheel(n, t.clientX, t.clientY); }
+      raf = requestAnimationFrame(fling);
+    };
+    raf = requestAnimationFrame(fling);
+  };
+  el.addEventListener('touchend', end, { passive: true });
+  el.addEventListener('touchcancel', () => { y0 = null; }, { passive: true });
 }
 function refit(pane) {
   if (!pane.el.offsetWidth) return;
@@ -117,6 +167,9 @@ function destroyView(id) {
 const COARSE = matchMedia('(pointer: coarse)').matches;
 const SENT = ' '; // centinela: permite detectar un Backspace aunque el buffer esté vacío
 let ime = null, imePrev = SENT;
+let lastPaneTap = 0; // el navegador quita el foco al tocar un panel: no cuenta como cerrar el teclado
+let kbWanted = false; // teclado virtual abierto a pedido del usuario
+function refreshKb() { document.querySelectorAll('[data-act=keyboard]').forEach((b) => b.classList.toggle('on', kbWanted)); }
 function imeReset() { if (ime) { ime.value = SENT; imePrev = SENT; } }
 function setupIme() {
   ime = document.createElement('textarea');
@@ -124,6 +177,11 @@ function setupIme() {
   for (const [k, v] of Object.entries({ autocomplete: 'off', autocorrect: 'off', autocapitalize: 'none', spellcheck: 'false', enterkeyhint: 'send', 'aria-label': 'terminal input' })) ime.setAttribute(k, v);
   ime.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;resize:none;font-size:16px;';
   document.body.appendChild(ime);
+  ime.addEventListener('focus', () => { kbWanted = true; refreshKb(); });
+  ime.addEventListener('blur', () => {
+    if (performance.now() - lastPaneTap < 500) { setTimeout(() => kbWanted && ime.focus(), 0); return; }
+    kbWanted = false; refreshKb();
+  });
   imeReset();
   const out = (s) => { const p = panes.get(focusedId()); if (p && s) send(p, s); };
   ime.addEventListener('input', (e) => {
@@ -294,6 +352,7 @@ function renameSession() {
 // ---------- UI ----------
 const actions = {
   newSession, splitRight: () => split('row'), splitDown: () => split('col'), closePane: () => closePane(),
+  keyboard: () => { if (!ime) return; if (document.activeElement === ime) ime.blur(); else { kbWanted = true; ime.focus(); } },
   renameSession, fontUp: () => setFont(1), fontDown: () => setFont(-1),
   menu: () => { const m = $('#menu'); m.hidden = !m.hidden; },
   paste: () => { $('#pasteTxt').value = ''; $('#pasteDlg').showModal(); },
