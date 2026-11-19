@@ -4,7 +4,7 @@
 //   root: {pane:id} | {dir:'row'|'col', ratio:0..1, a:node, b:node}
 const $ = (s) => document.querySelector(s);
 const stage = $('#stage'), tabsEl = $('#tabs'), statusEl = $('#status');
-const decodeKey = (s) => s.replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\t/g, '\t');
+const decodeKey = (s) => s.replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\t/g, '\t').replace(/\\r/g, '\r');
 
 let sessions = [];
 let active = null;
@@ -218,8 +218,17 @@ function applyMods(d) {
   refreshMods();
   return d;
 }
+// teclas extra desplegables (el estado se recuerda)
+function setMoreKeys(open) {
+  $('#kextra').hidden = !open; $('#moreKeys').setAttribute('aria-expanded', String(open));
+  $('#moreKeys').classList.toggle('open', open);
+  try { localStorage.setItem('moreKeys', open ? '1' : '0'); } catch {}
+  refreshMods();
+}
 function refreshMods() {
   document.querySelectorAll('[data-mod]').forEach((b) => b.classList.toggle('on', !!mods[b.dataset.mod]));
+  // si Alt está activo pero las teclas extra están plegadas, avisarlo en el botón de "más"
+  $('#moreKeys')?.classList.toggle('on', !!mods.alt && $('#kextra').hidden);
 }
 
 // ---------- acciones ----------
@@ -354,6 +363,7 @@ async function renameSession() {
 // ---------- UI ----------
 const actions = {
   newSession, splitRight: () => split('row'), splitDown: () => split('col'), closePane: () => closePane(),
+  moreKeys: () => setMoreKeys($('#kextra').hidden),
   keyboard: () => { if (!ime) return; if (document.activeElement === ime) ime.blur(); else { kbWanted = true; ime.focus(); } },
   renameSession, fontUp: () => setFont(1), fontDown: () => setFont(-1),
   menu: () => { const m = $('#menu'); m.hidden = !m.hidden; },
@@ -361,12 +371,16 @@ const actions = {
   logout: async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; },
 };
 // los botones no deben robar el foco (para no ocultar el teclado del móvil)
-document.addEventListener('pointerdown', (e) => { if (e.target.closest('button') && !e.target.closest('dialog')) e.preventDefault(); });
+// los botones no deben robar el foco (si no, se cierra el teclado del celular). En Chrome Android, cancelar
+// pointerdown no alcanza: hay que cancelar también el mousedown sintético. Y si igual hubiera un blur, no cuenta como cerrar el teclado.
+const keepFocus = (e) => { if (e.target.closest('button') && !e.target.closest('dialog')) { e.preventDefault(); lastPaneTap = performance.now(); } };
+document.addEventListener('pointerdown', keepFocus);
+document.addEventListener('mousedown', keepFocus);
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.act) { if (b.dataset.act !== 'menu') $('#menu').hidden = true; actions[b.dataset.act]?.(); }
-  else if (b.dataset.key) { const p = panes.get(focusedId()); imeReset(); if (p) send(p, applyMods(decodeKey(b.dataset.key))); p?.term.focus(); }
-  else if (b.dataset.mod) { const k = b.dataset.mod; mods[k] = mods[k] === 0 ? 1 : mods[k] === 1 ? 2 : 0; refreshMods(); panes.get(focusedId())?.term.focus(); }
+  else if (b.dataset.key) { const p = panes.get(focusedId()); imeReset(); if (p) send(p, applyMods(decodeKey(b.dataset.key))); if (!COARSE) p?.term.focus(); }
+  else if (b.dataset.mod) { const k = b.dataset.mod; mods[k] = mods[k] === 0 ? 1 : mods[k] === 1 ? 2 : 0; refreshMods(); if (!COARSE) panes.get(focusedId())?.term.focus(); }
 });
 $('#pasteDlg').addEventListener('close', (e) => {
   if (e.target.returnValue === 'ok') { const p = panes.get(focusedId()); if (p) send(p, $('#pasteTxt').value); }
@@ -380,6 +394,7 @@ window.addEventListener('resize', () => panes.forEach(refit));
 
 // ---------- arranque ----------
 if (COARSE) setupIme();
+try { if (localStorage.getItem('moreKeys') === '1') setMoreKeys(true); } catch {}
 (async () => {
   const st = await api('GET', '/api/state');
   const alive = new Set(st.panes);
@@ -574,10 +589,21 @@ function closeFiles() { const d = F.depth; F.depth = 0; hideFiles(); if (d) hist
 addEventListener('popstate', (e) => {
   const st = e.state;
   if (st && st.wt === 'files') { F.depth = st.d; F.el.hidden = false; fload(st.path || ''); }
+  else if (st && st.wt === 'guard') { F.depth = 0; hideFiles(); confirmExit(); }
   else { F.depth = 0; hideFiles(); }
 });
+// "Atrás" desde la terminal cae en la entrada "guardia": pedir confirmación antes de salir de la página
+let exitAsking = false;
+async function confirmExit() {
+  if (exitAsking) return; exitAsking = true;
+  const r = await fdlg({ title: 'Salir de webterm', text: 'Tus terminales siguen corriendo en el servidor; al volver las encontrás como las dejaste.',
+    buttons: [{ label: 'Quedarme', action: 'stay', cls: 'primary' }, { label: 'Salir', action: 'leave', cls: 'danger' }] });
+  exitAsking = false;
+  if (r?.action === 'leave') { history.go(-1); setTimeout(() => history.go(1), 500); } // si no hay a dónde ir, volver a la app
+  else history.go(1);
+}
 // al (re)cargar la página: volver a la entrada raíz si quedaron pasos del panel en el historial
-if (history.state && history.state.wt === 'files') history.go(-history.state.d); else history.replaceState({ wt: 'root' }, '');
+if (history.state && history.state.wt === 'files') history.go(-history.state.d); else if (!history.state || history.state.wt !== 'root') { history.replaceState({ wt: 'guard' }, ''); history.pushState({ wt: 'root' }, ''); }
 actions.files = () => (F.el.hidden ? openFiles() : closeFiles());
 F.el.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-fa]'); if (!b) return;

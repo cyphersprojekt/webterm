@@ -31,25 +31,35 @@
 </div>
 <main id="stage"></main>
 <footer id="keys">
-  <button data-act="keyboard" title="Mostrar/ocultar teclado" aria-label="Teclado"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
-  <button data-key="\x1b">Esc</button>
-  <button data-key="\t">Tab</button>
-  <button data-mod="ctrl">Ctrl</button>
-  <button data-mod="alt">Alt</button>
-  <button data-key="\x1b[D">←</button>
-  <button data-key="\x1b[B">↓</button>
-  <button data-key="\x1b[A">↑</button>
-  <button data-key="\x1b[C">→</button>
-  <button data-key="\x1b[H">Home</button>
-  <button data-key="\x1b[F">End</button>
-  <button data-key="\x1b[5~">PgUp</button>
-  <button data-key="\x1b[6~">PgDn</button>
-  <button data-key="|">|</button>
-  <button data-key="~">~</button>
-  <button data-key="/">/</button>
-  <button data-key="-">-</button>
-  <button data-key="\x03">^C</button>
-  <button data-key="\x04">^D</button>
+  <div class="krow extra" id="kextra" hidden>
+    <button data-key="\x1b">Esc</button>
+    <button data-key="\t">Tab</button>
+    <button data-mod="alt">Alt</button>
+    <button data-key="\x1b[H">Home</button>
+    <button data-key="\x1b[F">End</button>
+    <button data-key="\x1b[5~">PgUp</button>
+    <button data-key="\x1b[6~">PgDn</button>
+    <button data-key="|">|</button>
+    <button data-key="~">~</button>
+    <button data-key="/">/</button>
+    <button data-key="-">-</button>
+    <button data-key="_">_</button>
+    <button data-key="\\">\</button>
+    <button data-key="\x03">^C</button>
+    <button data-key="\x04">^D</button>
+    <button data-key="\x1a">^Z</button>
+    <button data-key="\x0c">^L</button>
+  </div>
+  <div class="krow main">
+    <button data-act="keyboard" title="Mostrar/ocultar teclado" aria-label="Teclado"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
+    <button data-mod="ctrl">Ctrl</button>
+    <button data-key="\r" class="enter" aria-label="Enter">Enter ↵</button>
+    <button data-key="\x1b[D" aria-label="Izquierda">←</button>
+    <button data-key="\x1b[B" aria-label="Abajo">↓</button>
+    <button data-key="\x1b[A" aria-label="Arriba">↑</button>
+    <button data-key="\x1b[C" aria-label="Derecha">→</button>
+    <button data-act="moreKeys" id="moreKeys" title="Más teclas" aria-label="Más teclas" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+  </div>
 </footer>
 <section id="files" hidden aria-label="Archivos">
   <div class="fhead">

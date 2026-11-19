@@ -57,11 +57,17 @@ body.app { display:flex; flex-direction:column; height:var(--vh, 100dvh); positi
 .pane.focus { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 18px rgba(189,147,249,.18); }
 .pane .xterm { height:100%; }
 .pane .xterm-viewport { overflow-y:auto !important; }
-#keys { display:flex; gap:6px; padding:6px 8px; background:var(--panel); overflow-x:auto; flex:none;
-  scrollbar-width:none; border-top:1px solid var(--line);
-  padding-bottom:max(6px, env(safe-area-inset-bottom)); }
-#keys::-webkit-scrollbar { display:none; }
-#keys button { flex:none; min-width:44px; padding:8px 10px; font-family:ui-monospace, monospace; font-size:13px; }
+#keys { display:flex; flex-direction:column; gap:4px; padding:6px 6px; background:var(--panel); flex:none;
+  border-top:1px solid var(--line); padding-bottom:max(6px, env(safe-area-inset-bottom)); }
+#keys .krow { display:flex; gap:4px; }
+#keys .krow.main button { flex:1 1 0; min-width:0; }
+#keys .krow.main button[data-act=keyboard], #keys .krow.main button[data-act=moreKeys] { flex:0 0 38px; }
+#keys .krow.main button.enter { flex:1.9 1 0; }
+#keys .krow.extra { display:grid; grid-template-columns:repeat(auto-fill, minmax(52px, 1fr)); }
+#keys .krow.extra[hidden] { display:none; }
+#keys button { padding:9px 2px; font-family:ui-monospace, monospace; font-size:13px; display:flex; align-items:center; justify-content:center; }
+#keys #moreKeys svg { transition:transform .15s; } #keys #moreKeys.open svg { transform:rotate(180deg); }
+#keys #moreKeys.on { box-shadow:inset 0 0 0 2px var(--accent); }
 #status { position:fixed; top:56px; left:50%; transform:translateX(-50%); background:#ff5555; color:#fff;
   padding:6px 14px; border-radius:14px; font-size:13px; z-index:30; box-shadow:0 4px 16px rgba(0,0,0,.4); }
 #status[hidden] { display:none; }
@@ -139,3 +145,5 @@ dialog div { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
 .frow button { padding:7px 8px; display:flex; }
 .frow button.del:hover, .frow button.del:active { background:#4a2230; border-color:#ff5555; color:#ffb4b4; }
 .frow svg:first-child { margin-right:4px; }
+#keys button.enter { background:var(--panel2); border-color:var(--green); color:var(--green); font-weight:600; }
+#keys button.enter:active { background:var(--green); color:#111; }
