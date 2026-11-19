@@ -18,6 +18,12 @@ La terminal es real: el servidor abre un pseudo-terminal (`node-pty`) con tu she
   <img src="docs/screenshots/login.png" alt="Pantalla de login" width="230">
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/files-desktop.png" alt="Explorador de archivos: subida con progreso" width="640">
+  &nbsp;
+  <img src="docs/screenshots/files-mobile.png" alt="Explorador de archivos en el celular" width="200">
+</p>
+
 > ⚠️ **Quien entra tiene una shell completa con el usuario que corre el servidor.** Usá contraseñas largas, exponelo solo dentro de una VPN o red de confianza y, si salís a una red no confiable, poné TLS (ver más abajo).
 
 ## Requisitos
@@ -61,6 +67,7 @@ Reiniciar el servicio **cierra las shells abiertas**; recargar la página en el 
 - **Sesiones**: pestañas arriba. `＋` crea una; tocar la pestaña activa la renombra.
 - **Splits**: botones de dividir lateral / horizontal. Anidables; los divisores se arrastran. El panel nuevo abre en el directorio del panel actual.
 - **Persistencia**: las shells viven en el servidor. Si se corta la conexión reconecta sola y recupera la salida reciente (256 KB por panel); el layout se restaura al volver a entrar, incluso desde otro dispositivo.
+- **Archivos**: el botón de carpeta abre un explorador del equipo (siempre arranca en el home). Permite navegar, **descargar** archivos (las carpetas bajan como `.tar.gz`), **subir** archivos desde el dispositivo (selector nativo del celular o arrastrar y soltar en escritorio; varios a la vez, con progreso), crear carpetas, renombrar y borrar (menú `⋯` de cada fila, con botones y confirmación para borrar). Una subida nunca pisa un archivo existente: agrega ` (1)`, ` (2)`… al nombre. Por defecto oculta los archivos que empiezan con punto (botón "Ocultos").
 - **Celular**: barra inferior con Esc, Tab, Ctrl/Alt (un toque = próxima tecla, dos = fijo), flechas, Home/End, PgUp/PgDn y símbolos frecuentes. Menú ⋮: cerrar panel, fuente, "Pegar texto…" (la API del portapapeles no está disponible por HTTP sin TLS).
 - **Atajos de escritorio**:
 
@@ -78,13 +85,14 @@ Reiniciar el servicio **cierra las shells abiertas**; recargar la página en el 
 - Tras 5 intentos fallidos desde una IP, esa IP se bloquea con espera creciente (hasta 15 min).
 - El WebSocket exige sesión y verifica `Origin`; las peticiones que modifican estado también.
 - **HTTP plano por defecto.** Si el tráfico no va por una VPN, activá TLS: `TLS_CERT=/ruta/cert.pem TLS_KEY=/ruta/key.pem` (en el servicio, agregá esas líneas `Environment=` a la unidad) o ponelo detrás de un reverse proxy con HTTPS.
+- El explorador de archivos accede con los permisos del usuario que corre el servidor (los mismos que tiene su shell). No permite borrar `/`, el home ni sus carpetas superiores; las subidas se escriben en un temporal y se renombran al terminar, y una subida cancelada no deja residuos.
 - Para escuchar solo en local (por ejemplo detrás de un túnel SSH): `node setup.js service --host 127.0.0.1`.
 
 ## Auditoría
 
 Cada evento se guarda como una línea JSON en `data/audit.log` (rota a `.1` a los 10 MB) y también va al journal de systemd:
 
-`login_ok`, `login_fail`, `login_blocked`, `logout`, `attach`/`detach` (con IP), `ws_denied`, `pane_new`, `pane_close`, `pane_exit` y `cmd`.
+`login_ok`, `login_fail`, `login_blocked`, `logout`, `attach`/`detach` (con IP), `ws_denied`, `pane_new`, `pane_close`, `pane_exit`, `cmd` y las del explorador de archivos: `fs_download`, `fs_upload`, `fs_mkdir`, `fs_rename`, `fs_delete` (con usuario, IP y ruta).
 
 Los **comandos** se obtienen de un hook de bash (`shell/bashrc.webterm`, que carga tu `~/.bashrc` y reporta cada comando ejecutado). Limitaciones: solo bash; solo lo que corre en la shell local del panel (no dentro de un `ssh` o de vim); y no es a prueba de manipulación — quien tiene la shell puede evadirlo. En las shells de webterm se desactivan `HISTCONTROL`/`HISTIGNORE` para no omitir comandos repetidos ni con espacio inicial. Para auditoría forense, usá auditd.
 

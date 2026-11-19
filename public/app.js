@@ -344,9 +344,11 @@ function build(n) {
   box.append(a, d, b);
   return box;
 }
-function renameSession() {
-  const s = curSession(); const n = prompt('Nombre de la sesión', s.name);
-  if (n && n.trim()) { s.name = n.trim().slice(0, 24); render(); }
+async function renameSession() {
+  const s = curSession();
+  const r = await fdlg({ title: 'Renombrar sesión', input: s.name, buttons: [BTN_CANCEL, { label: 'Aceptar', action: 'ok', cls: 'primary' }] });
+  const n = r?.action === 'ok' && r.value.trim();
+  if (n) { s.name = n.slice(0, 24); render(); }
 }
 
 // ---------- UI ----------
@@ -401,3 +403,207 @@ if (COARSE) setupIme();
   if (!sessions.length) return newSession();
   render();
 })();
+
+// ---------- explorador de archivos ----------
+const FI = {
+  dir: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  file: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/></svg>',
+  up: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7 9l5-5 5 5M5 20h14"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>',
+};
+const F = { el: $('#files'), list: $('#flist'), bar: $('#fpath'), up: $('#fup'), pick: $('#fpick'), msg: $('#fmsg'),
+  depth: 0, cur: null, parent: null, home: null, entries: [], hidden: false, msgT: 0, pickDir: null };
+const fmtSize = (n) => { const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i]; };
+const fmtDate = (ms) => ms ? new Date(ms).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
+const joinPath = (d, n) => (d === '/' ? '' : d) + '/' + n;
+function fmsg(t) { F.msg.textContent = t; F.msg.hidden = !t; clearTimeout(F.msgT); if (t) F.msgT = setTimeout(() => (F.msg.hidden = true), 6000); }
+async function fapi(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body && JSON.stringify(body) });
+  if (r.status === 401) { location.href = '/login'; throw new Error('auth'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+  return j;
+}
+async function fload(p) {
+  try {
+    const d = await fapi('GET', '/api/fs/list' + (p ? '?path=' + encodeURIComponent(p) : ''));
+    Object.assign(F, { cur: d.path, parent: d.parent, home: d.home, entries: d.entries });
+    fmsg(d.truncated ? 'Carpeta muy grande: se muestran solo los primeros 5000 elementos.' : '');
+    frender();
+  } catch (e) { fmsg(e.message); }
+}
+function frender() {
+  // ruta navegable
+  F.bar.textContent = '';
+  const parts = F.cur.split('/').filter(Boolean);
+  const crumb = (label, path) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => fnav(path); F.bar.appendChild(b); };
+  crumb('/', '/');
+  parts.forEach((seg, i) => { const sp = document.createElement('span'); sp.textContent = '›'; F.bar.appendChild(sp); crumb(seg, '/' + parts.slice(0, i + 1).join('/')); });
+  F.bar.scrollLeft = F.bar.scrollWidth;
+  const ub = $('[data-fa=upload]');
+  ub.textContent = 'Subir a «' + (F.cur === F.home ? 'Inicio' : (parts[parts.length - 1] || '/')) + '»';
+  ub.title = 'Subir archivos a ' + F.cur;
+  // listado
+  F.list.textContent = '';
+  const rows = F.entries.filter((e) => F.hidden || !e.name.startsWith('.'))
+    .sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  if (!rows.length) { const d = document.createElement('div'); d.className = 'fempty'; d.textContent = 'Carpeta vacía'; F.list.appendChild(d); }
+  for (const e of rows) {
+    const full = joinPath(F.cur, e.name);
+    const row = document.createElement('div');
+    row.className = 'frow ' + (e.dir ? 'dir' : 'file') + (e.broken ? ' broken' : '');
+    row.insertAdjacentHTML('beforeend', e.dir ? FI.dir : FI.file); // íconos: SVG constantes
+    const nm = document.createElement('div'); nm.className = 'fname';
+    const b = document.createElement('b'); b.textContent = e.name + (e.link ? ' →' : '');
+    const sm = document.createElement('small'); sm.textContent = e.broken ? 'enlace roto' : (e.dir ? '' : fmtSize(e.size) + ' · ') + fmtDate(e.mtime);
+    nm.append(b, sm); row.appendChild(nm);
+    row.onclick = () => { if (e.broken) return; if (e.dir) fnav(full); else fdownload(full); };
+    if (e.dir && !e.broken) {
+      row.dataset.path = full;
+      const up = document.createElement('button'); up.title = 'Subir archivos a esta carpeta'; up.insertAdjacentHTML('beforeend', FI.up);
+      up.onclick = (ev) => { ev.stopPropagation(); F.pickDir = full; F.pick.click(); }; row.appendChild(up);
+    }
+    if (!e.broken) {
+      const dl = document.createElement('button'); dl.title = e.dir ? 'Descargar como .tar.gz' : 'Descargar'; dl.insertAdjacentHTML('beforeend', FI.down);
+      dl.onclick = (ev) => { ev.stopPropagation(); fdownload(full); }; row.appendChild(dl);
+    }
+    const ren = document.createElement('button'); ren.title = 'Renombrar'; ren.setAttribute('aria-label', 'Renombrar'); ren.insertAdjacentHTML('beforeend', FI.edit);
+    ren.onclick = (ev) => { ev.stopPropagation(); frename(e, full); }; row.appendChild(ren);
+    const del = document.createElement('button'); del.title = 'Borrar'; del.setAttribute('aria-label', 'Borrar'); del.className = 'del'; del.insertAdjacentHTML('beforeend', FI.trash);
+    del.onclick = (ev) => { ev.stopPropagation(); fdelete(e, full); }; row.appendChild(del);
+    F.list.appendChild(row);
+  }
+}
+function fdownload(full) {
+  const a = document.createElement('a');
+  a.href = '/api/fs/download?path=' + encodeURIComponent(full); a.download = ''; document.body.appendChild(a); a.click(); a.remove();
+}
+// diálogo propio (reemplaza prompt/confirm): devuelve {action, value} o null si se cancela
+function fdlg({ title, text, input, buttons, stack }) {
+  return new Promise((resolve) => {
+    const d = $('#fdlg'), inp = d.querySelector('input'), row = d.querySelector('.fbtns'), t = d.querySelector('p');
+    d.querySelector('h3').textContent = title;
+    t.textContent = text || ''; t.hidden = !text;
+    inp.hidden = input === undefined; if (input !== undefined) inp.value = input;
+    row.textContent = ''; row.classList.toggle('stack', !!stack);
+    let result = null;
+    for (const b of buttons) {
+      const el = document.createElement('button'); el.type = 'button'; el.textContent = b.label; if (b.cls) el.className = b.cls;
+      el.onclick = () => { result = { action: b.action, value: inp.value }; d.close(); };
+      row.appendChild(el);
+    }
+    d.onclose = () => resolve(result);
+    inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); row.querySelector('.primary')?.click(); } };
+    d.showModal(); if (input !== undefined) { inp.focus(); inp.select(); }
+  });
+}
+const BTN_CANCEL = { label: 'Cancelar', action: 'cancel' };
+async function frename(e, full) {
+  const r = await fdlg({ title: 'Renombrar', input: e.name, buttons: [BTN_CANCEL, { label: 'Aceptar', action: 'ok', cls: 'primary' }] });
+  const n = r?.action === 'ok' && r.value.trim();
+  if (!n || n === e.name) return;
+  try { await fapi('POST', '/api/fs/rename', { path: full, name: n }); fload(F.cur); } catch (err) { fmsg(err.message); }
+}
+async function fdelete(e, full) {
+  const r = await fdlg({ title: e.dir ? 'Borrar carpeta' : 'Borrar archivo',
+    text: `"${e.name}"${e.dir ? ' y todo su contenido' : ''} se borrará definitivamente. No se puede deshacer.`,
+    buttons: [BTN_CANCEL, { label: 'Borrar', action: 'ok', cls: 'danger' }] });
+  if (r?.action !== 'ok') return;
+  try { await fapi('POST', '/api/fs/delete', { path: full }); fload(F.cur); } catch (err) { fmsg(err.message); }
+}
+async function fmkdir() {
+  const r = await fdlg({ title: 'Nueva carpeta', input: '', buttons: [BTN_CANCEL, { label: 'Crear', action: 'ok', cls: 'primary' }] });
+  const n = r?.action === 'ok' && r.value.trim(); if (!n) return;
+  try { await fapi('POST', '/api/fs/mkdir', { dir: F.cur, name: n }); fload(F.cur); } catch (err) { fmsg(err.message); }
+}
+// subidas (en serie, con progreso)
+const upQueue = []; let upBusy = false;
+function fupload(files, dir = F.cur) {
+  for (const f of files) {
+    const el = document.createElement('div'); el.className = 'fu';
+    el.innerHTML = '<div class="top"><span></span><span class="st">en cola</span><button title="Cancelar">✕</button></div><div class="bar"><i></i></div>';
+    el.querySelector('span').textContent = `${f.name}  →  ${dir === F.home ? '~' : (dir.split('/').filter(Boolean).pop() || '/')}`;
+    el.title = dir;
+    F.up.appendChild(el);
+    const job = { f, dir, el, xhr: null, cancelled: false };
+    el.querySelector('button').onclick = () => { job.cancelled = true; job.xhr?.abort(); if (!job.started) finish(job, 'cancelado', true); else el.remove(); };
+    upQueue.push(job);
+  }
+  pump();
+}
+function finish(job, text, err) {
+  job.el.classList.add(err ? 'err' : 'done'); job.el.querySelector('.st').textContent = text;
+  job.el.querySelector('button').onclick = () => job.el.remove();
+  if (!err) setTimeout(() => job.el.remove(), 8000);
+}
+function pump() {
+  if (upBusy) return;
+  const job = upQueue.shift(); if (!job) return;
+  if (job.cancelled) return pump();
+  upBusy = true; job.started = true;
+  const x = job.xhr = new XMLHttpRequest();
+  x.open('POST', `/api/fs/upload?dir=${encodeURIComponent(job.dir)}&name=${encodeURIComponent(job.f.name)}`);
+  x.setRequestHeader('Content-Type', 'application/octet-stream');
+  const st = job.el.querySelector('.st'), bar = job.el.querySelector('.bar i');
+  x.upload.onprogress = (e) => { if (e.lengthComputable) { bar.style.width = (100 * e.loaded / e.total) + '%'; st.textContent = `${fmtSize(e.loaded)} / ${fmtSize(e.total)}`; } };
+  const done = () => { upBusy = false; if (F.cur === job.dir && !F.el.hidden) fload(F.cur); pump(); };
+  x.onload = () => {
+    if (x.status === 200) { bar.style.width = '100%'; finish(job, 'listo · ' + fmtSize(job.f.size)); }
+    else { let m = `Error ${x.status}`; try { m = JSON.parse(x.responseText).error || m; } catch {} finish(job, m, true); }
+    done();
+  };
+  x.onerror = () => { finish(job, 'error de red', true); done(); };
+  x.onabort = () => { done(); };
+  x.send(job.f);
+}
+// Historial: abrir el panel y cada carpeta visitada son pasos de navegación, así "atrás" sube de carpeta
+// (y en el home cierra el panel) en vez de salir de la página.
+function fnav(p) {
+  if ((p || F.home) === F.cur) return;
+  F.depth++; history.pushState({ wt: 'files', d: F.depth, path: p || null }, '');
+  fload(p);
+}
+function openFiles() { // siempre abre en el home
+  F.el.hidden = false; F.depth = 1; history.pushState({ wt: 'files', d: 1, path: null }, '');
+  fload('');
+}
+function hideFiles() { if (!F.el.hidden) { F.el.hidden = true; panes.get(focusedId())?.term.focus(); } }
+function closeFiles() { const d = F.depth; F.depth = 0; hideFiles(); if (d) history.go(-d); }
+addEventListener('popstate', (e) => {
+  const st = e.state;
+  if (st && st.wt === 'files') { F.depth = st.d; F.el.hidden = false; fload(st.path || ''); }
+  else { F.depth = 0; hideFiles(); }
+});
+// al (re)cargar la página: volver a la entrada raíz si quedaron pasos del panel en el historial
+if (history.state && history.state.wt === 'files') history.go(-history.state.d); else history.replaceState({ wt: 'root' }, '');
+actions.files = () => (F.el.hidden ? openFiles() : closeFiles());
+F.el.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-fa]'); if (!b) return;
+  const a = b.dataset.fa;
+  if (a === 'close') closeFiles();
+  else if (a === 'up') { if (F.parent) fnav(F.parent); }
+  else if (a === 'home') fnav('');
+  else if (a === 'refresh') fload(F.cur);
+  else if (a === 'upload') { F.pickDir = F.cur; F.pick.click(); }
+  else if (a === 'hidden') { F.hidden = !F.hidden; b.classList.toggle('on', F.hidden); frender(); }
+  else if (a === 'mkdir') fmkdir();
+});
+F.pick.addEventListener('change', () => { if (F.pick.files.length) fupload([...F.pick.files], F.pickDir || F.cur); F.pick.value = ''; });
+let dragDepth = 0;
+F.el.addEventListener('dragenter', (e) => { if (e.dataTransfer?.types.includes('Files')) { dragDepth++; F.el.classList.add('dragging'); } });
+F.el.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; F.el.classList.remove('dragging'); } });
+const dropRow = (e) => e.target.closest?.('.frow.dir');
+F.el.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  const r = dropRow(e);
+  F.list.querySelectorAll('.frow.drop').forEach((x) => { if (x !== r) x.classList.remove('drop'); });
+  r?.classList.add('drop');
+});
+F.el.addEventListener('drop', (e) => {
+  e.preventDefault(); dragDepth = 0; F.el.classList.remove('dragging');
+  const r = dropRow(e); F.list.querySelectorAll('.frow.drop').forEach((x) => x.classList.remove('drop'));
+  if (e.dataTransfer.files.length) fupload([...e.dataTransfer.files], r ? r.dataset.path : F.cur);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !F.el.hidden && !document.querySelector('dialog[open]')) closeFiles(); });

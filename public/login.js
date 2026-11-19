@@ -9,7 +9,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user: fd.get('user'), password: fd.get('password') }),
     });
-    if (r.ok) return (location.href = '/');
+    if (r.ok) return location.replace('/');
     err.textContent = (await r.json()).error || 'Error';
   } catch { err.textContent = 'Sin conexión con el servidor.'; }
 });

@@ -5,6 +5,9 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { spawn } = require('child_process');
+const fsp = fs.promises;
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const pty = require('node-pty');
@@ -236,6 +239,126 @@ app.post('/api/panes', (req, res) => {
   res.json({ id: newPane(from, req.user) });
 });
 app.delete('/api/panes/:id', (req, res) => { killPane(req.params.id); res.json({ ok: true }); });
+
+// ---------- explorador de archivos ----------
+const homeDir = () => process.env.HOME || os.homedir();
+const httpErr = (status, error) => Object.assign(new Error(error), { status });
+function absPath(p) {
+  if (p !== undefined && typeof p !== 'string') throw httpErr(400, 'Ruta inválida');
+  if (p && p.includes('\0')) throw httpErr(400, 'Ruta inválida');
+  return path.resolve(p ? (path.isAbsolute(p) ? p : path.join(homeDir(), p)) : homeDir());
+}
+function cleanName(n) {
+  if (typeof n !== 'string') throw httpErr(400, 'Nombre inválido');
+  n = n.trim();
+  if (!n || n === '.' || n === '..' || /[\/\0]/.test(n) || Buffer.byteLength(n) > 255) throw httpErr(400, 'Nombre inválido');
+  return n;
+}
+function fsFail(res, e) {
+  const map = { ENOENT: [404, 'No existe'], EACCES: [403, 'Sin permiso'], EPERM: [403, 'Operación no permitida'],
+    ENOTDIR: [400, 'No es una carpeta'], EISDIR: [400, 'Es una carpeta'], EEXIST: [409, 'Ya existe'],
+    ENOTEMPTY: [409, 'La carpeta no está vacía'], ENOSPC: [507, 'Sin espacio en disco'] };
+  const [status, msg] = e.status ? [e.status, e.message] : (map[e.code] || [500, 'Error: ' + (e.code || e.message)]);
+  if (!res.headersSent) res.status(status).json({ error: msg }); else res.destroy();
+}
+const contentDisposition = (name) =>
+  `attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16))}`;
+async function uniquePath(file) {
+  const { dir, name, ext } = path.parse(file);
+  for (let i = 0; ; i++) {
+    const cand = i ? path.join(dir, `${name} (${i})${ext}`) : file;
+    try { await fsp.access(cand); } catch { return cand; }
+  }
+}
+const fsAudit = (ev, req, f) => audit(ev, { user: req.user, ip: ipOf(req), ...f });
+
+app.get('/api/fs/list', async (req, res) => {
+  try {
+    const dir = absPath(req.query.path);
+    if (!(await fsp.stat(dir)).isDirectory()) throw httpErr(400, 'No es una carpeta');
+    const all = await fsp.readdir(dir, { withFileTypes: true });
+    const entries = await Promise.all(all.slice(0, 5000).map(async (d) => {
+      let st = null;
+      try { st = await fsp.stat(path.join(dir, d.name)); } catch {} // sigue symlinks; roto => null
+      return { name: d.name, dir: st ? st.isDirectory() : d.isDirectory(), size: st ? st.size : 0,
+        mtime: st ? st.mtimeMs : 0, link: d.isSymbolicLink(), broken: !st };
+    }));
+    res.json({ path: dir, parent: dir === path.parse(dir).root ? null : path.dirname(dir), home: homeDir(), entries, truncated: all.length > 5000 });
+  } catch (e) { fsFail(res, e); }
+});
+
+app.get('/api/fs/download', async (req, res) => {
+  try {
+    const p = absPath(req.query.path);
+    const st = await fsp.stat(p);
+    if (st.isDirectory()) {
+      if (p === path.parse(p).root) throw httpErr(400, 'No se puede descargar la raíz');
+      fsAudit('fs_download', req, { path: p, folder: true });
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', contentDisposition(path.basename(p) + '.tar.gz'));
+      const tar = spawn('tar', ['-czf', '-', '-C', path.dirname(p), '--', path.basename(p)], { stdio: ['ignore', 'pipe', 'ignore'] });
+      tar.stdout.pipe(res);
+      tar.on('error', () => res.destroy());
+      res.on('close', () => tar.kill());
+    } else if (st.isFile()) {
+      fsAudit('fs_download', req, { path: p, size: st.size });
+      res.download(p, path.basename(p), { dotfiles: 'allow' }, (err) => { if (err) fsFail(res, err); });
+    } else throw httpErr(400, 'Tipo de archivo no soportado');
+  } catch (e) { fsFail(res, e); }
+});
+
+app.post('/api/fs/upload', async (req, res) => {
+  let tmp;
+  try {
+    const dir = absPath(req.query.dir), name = cleanName(req.query.name);
+    if (!(await fsp.stat(dir)).isDirectory()) throw httpErr(400, 'No es una carpeta');
+    const final = req.query.overwrite === '1' ? path.join(dir, name) : await uniquePath(path.join(dir, name));
+    tmp = path.join(dir, `.${crypto.randomBytes(6).toString('hex')}.webterm-part`);
+    await new Promise((ok, fail) => {
+      const w = fs.createWriteStream(tmp, { flags: 'wx', mode: 0o644 });
+      req.on('close', () => { if (!req.complete) { w.destroy(); fail(httpErr(499, 'Subida cancelada')); } });
+      req.on('error', fail); w.on('error', fail); w.on('finish', ok);
+      req.pipe(w);
+    });
+    await fsp.rename(tmp, final); tmp = null;
+    const size = (await fsp.stat(final)).size;
+    fsAudit('fs_upload', req, { path: final, size });
+    res.json({ ok: true, name: path.basename(final), size });
+  } catch (e) {
+    if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
+    fsFail(res, e);
+  }
+});
+
+app.post('/api/fs/mkdir', async (req, res) => {
+  try {
+    const p = path.join(absPath(req.body?.dir), cleanName(req.body?.name));
+    await fsp.mkdir(p);
+    fsAudit('fs_mkdir', req, { path: p });
+    res.json({ ok: true });
+  } catch (e) { fsFail(res, e); }
+});
+
+app.post('/api/fs/rename', async (req, res) => {
+  try {
+    const from = absPath(req.body?.path), to = path.join(path.dirname(from), cleanName(req.body?.name));
+    try { await fsp.access(to); throw httpErr(409, 'Ya existe'); } catch (e) { if (e.status) throw e; }
+    await fsp.rename(from, to);
+    fsAudit('fs_rename', req, { from, to });
+    res.json({ ok: true });
+  } catch (e) { fsFail(res, e); }
+});
+
+app.post('/api/fs/delete', async (req, res) => {
+  try {
+    const p = absPath(req.body?.path), home = homeDir();
+    if (p === path.parse(p).root || p === home || home.startsWith(p + path.sep)) throw httpErr(400, 'No se puede borrar esta carpeta');
+    const st = await fsp.lstat(p);
+    await fsp.rm(p, { recursive: true });
+    fsAudit('fs_delete', req, { path: p, folder: st.isDirectory() });
+    res.json({ ok: true });
+  } catch (e) { fsFail(res, e); }
+});
 
 // ---------- servidor + websocket ----------
 let server;

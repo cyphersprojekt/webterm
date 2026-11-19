@@ -18,6 +18,7 @@
   <button data-act="newSession" title="Nueva sesión (Ctrl+Alt+T)" aria-label="Nueva sesión"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
   <button data-act="splitRight" title="Dividir lateral (Ctrl+Alt+R)" aria-label="Dividir lateral"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg></button>
   <button data-act="splitDown" title="Dividir horizontal (Ctrl+Alt+D)" aria-label="Dividir horizontal"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg></button>
+  <button data-act="files" title="Archivos" aria-label="Archivos"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
   <button data-act="menu" title="Más" aria-label="Menú"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
 </header>
 <div id="menu" hidden>
@@ -50,7 +51,32 @@
   <button data-key="\x03">^C</button>
   <button data-key="\x04">^D</button>
 </footer>
+<section id="files" hidden aria-label="Archivos">
+  <div class="fhead">
+    <button data-fa="up" title="Carpeta superior" aria-label="Subir un nivel">↑</button>
+    <div id="fpath"></div>
+    <button data-fa="close" title="Cerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <div class="ftools">
+    <button data-fa="upload" class="primary">Subir archivos</button>
+    <button data-fa="mkdir">Nueva carpeta</button>
+    <button data-fa="home">Inicio</button>
+    <button data-fa="hidden" id="fhidden">Ocultos</button>
+    <button data-fa="refresh">Actualizar</button>
+  </div>
+  <div id="fmsg" hidden></div>
+  <div id="flist"></div>
+  <div id="fup"></div>
+  <div id="fdrop">Soltá los archivos: se suben a la carpeta actual, o a la carpeta sobre la que los sueltes</div>
+  <input type="file" id="fpick" multiple hidden>
+</section>
 <div id="status" hidden></div>
+<dialog id="fdlg">
+  <h3></h3>
+  <p></p>
+  <input type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+  <div class="fbtns"></div>
+</dialog>
 <dialog id="pasteDlg">
   <form method="dialog">
     <textarea id="pasteTxt" rows="5" placeholder="Pegá acá el texto"></textarea>
