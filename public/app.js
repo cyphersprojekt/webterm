@@ -70,7 +70,6 @@ function createPaneView(id) {
   const pane = { id, el, term, fit, ws: null, retry: 0, dead: false };
   term.onData((d) => send(pane, applyMods(d)));
   term.onResize(({ cols, rows }) => wsSend(pane, { t: 'r', c: cols, r: rows }));
-  term.attachCustomKeyEventHandler((e) => shortcut(e));
   el.addEventListener('pointerdown', (e) => {
     if (COARSE && e.pointerType === 'touch') { e.preventDefault(); lastPaneTap = performance.now(); } // tocar un panel lo selecciona, sin tocar el teclado
     focusPane(id);
@@ -297,22 +296,7 @@ function setFont(delta) {
   panes.forEach((p) => { p.term.options.fontSize = fontSize; refit(p); });
 }
 
-// atajos de escritorio (estilo Tilix)
-function shortcut(e) {
-  if (e.type !== 'keydown') return true;
-  if (e.ctrlKey && e.altKey) {
-    const k = e.key.toLowerCase(), map = { r: () => split('row'), d: () => split('col'), t: newSession, w: () => closePane() };
-    if (map[k]) { e.preventDefault(); map[k](); return false; }
-    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key]) { e.preventDefault(); focusDir(...arrows[e.key]); return false; }
-  }
-  if (e.altKey && !e.ctrlKey && !e.shiftKey) {
-    if (e.key === 'PageUp') { switchSession(-1); return false; }
-    if (e.key === 'PageDown') { switchSession(1); return false; }
-    if (/^[1-9]$/.test(e.key) && sessions[+e.key - 1]) { active = sessions[+e.key - 1].id; render(); return false; }
-  }
-  return true;
-}
+// los atajos de teclado (configurables) viven en shortcuts.js
 
 // ---------- render ----------
 function render() {

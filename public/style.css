@@ -147,3 +147,23 @@ dialog div { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
 .frow svg:first-child { margin-right:4px; }
 #keys button.enter { background:var(--panel2); border-color:var(--green); color:var(--green); font-weight:600; }
 #keys button.enter:active { background:var(--green); color:#111; }
+
+/* diálogo de atajos */
+#scdlg { width:min(600px, 94vw); max-height:86vh; overflow:hidden; }
+#scdlg[open] { display:flex; flex-direction:column; }
+#scdlg h3 { margin:0 0 4px; }
+#scdlg .hint { margin:0 0 8px; color:var(--dim); font-size:13px; }
+#sclist { display:block; margin-top:0; overflow-y:auto; flex:1 1 auto; min-height:0; margin:0 -4px; padding:0 4px; }
+#sclist h4 { margin:14px 0 4px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); }
+.screw { display:grid; grid-template-columns:1fr auto auto auto; gap:6px; align-items:center; padding:4px 0; border-bottom:1px solid #23253a; }
+.screw span { font-size:14px; }
+.screw button { padding:6px 9px; font-size:13px; }
+.screw button:disabled { opacity:.3; }
+.screw .sckey { min-width:150px; font-family:ui-monospace, monospace; }
+.screw .sckey.none { color:var(--dim); }
+.screw .sckey.rec { border-color:var(--accent); color:var(--accent); animation:scpulse 1s infinite; }
+@keyframes scpulse { 50% { background:var(--panel2); } }
+#scmsg { min-height:1.3em; margin:8px 0 0; font-size:13px; color:var(--dim); }
+#scmsg.bad { color:#ffb86c; }
+#scdlg .fbtns { display:flex; justify-content:space-between; gap:8px; margin-top:8px; }
+#scdlg .fbtns button.primary { background:var(--accent); color:#111; border-color:var(--accent); font-weight:600; }

@@ -229,11 +229,25 @@ app.use((req, res, next) => {
 });
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.js')));
+app.get('/shortcuts.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'shortcuts.js')));
 
 app.get('/api/state', (req, res) => {
   res.json({ user: req.user, layout: loadLayouts()[req.user] || null, panes: [...panes.keys()] });
 });
 app.put('/api/layout', (req, res) => { saveLayout(req.user, req.body); res.json({ ok: true }); });
+// preferencias por usuario (atajos de teclado); sólo se guardan las diferencias con los valores por defecto
+const PREFS_FILE = path.join(DATA, 'prefs.json');
+const loadPrefs = () => { try { return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { return {}; } };
+app.get('/api/prefs', (req, res) => res.json(loadPrefs()[req.user] || {}));
+app.put('/api/prefs', (req, res) => {
+  const sc = req.body && req.body.shortcuts;
+  if (!sc || typeof sc !== 'object' || Array.isArray(sc)) return res.status(400).json({ error: 'Formato inválido' });
+  const clean = {};
+  for (const [k, v] of Object.entries(sc).slice(0, 100)) if (/^[A-Za-z0-9_]{1,40}$/.test(k) && typeof v === 'string' && v.length <= 60) clean[k] = v;
+  const all = loadPrefs(); all[req.user] = { ...all[req.user], shortcuts: clean };
+  fs.writeFileSync(PREFS_FILE, JSON.stringify(all, null, 2), { mode: 0o600 });
+  res.json({ ok: true });
+});
 app.post('/api/panes', (req, res) => {
   const from = typeof req.body?.from === 'string' ? req.body.from : null;
   res.json({ id: newPane(from, req.user) });

@@ -27,6 +27,7 @@
   <button data-act="paste">Pegar texto…</button>
   <button data-act="fontUp">Fuente +</button>
   <button data-act="fontDown">Fuente −</button>
+  <button data-act="shortcuts">Atajos de teclado…</button>
   <button data-act="logout">Salir</button>
 </div>
 <main id="stage"></main>
@@ -87,6 +88,13 @@
   <input type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
   <div class="fbtns"></div>
 </dialog>
+<dialog id="scdlg">
+  <h3>Atajos de teclado</h3>
+  <p class="hint">Hacé clic en un atajo y presioná la nueva combinación. Se guardan en el servidor, para tu usuario.</p>
+  <div id="sclist"></div>
+  <p id="scmsg"></p>
+  <div class="fbtns"><button type="button" id="scReset">Restablecer todo</button><button type="button" id="scClose" class="primary">Listo</button></div>
+</dialog>
 <dialog id="pasteDlg">
   <form method="dialog">
     <textarea id="pasteTxt" rows="5" placeholder="Pegá acá el texto"></textarea>
@@ -97,5 +105,6 @@
 <script src="/vendor/fit/lib/addon-fit.js"></script>
 <script src="/vendor/links/lib/addon-web-links.js"></script>
 <script src="/app.js"></script>
+<script src="/shortcuts.js"></script>
 </body>
 </html>

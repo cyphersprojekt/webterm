@@ -69,15 +69,13 @@ Reiniciar el servicio **cierra las shells abiertas**; recargar la página en el 
 - **Persistencia**: las shells viven en el servidor. Si se corta la conexión reconecta sola y recupera la salida reciente (256 KB por panel); el layout se restaura al volver a entrar, incluso desde otro dispositivo.
 - **Archivos**: el botón de carpeta abre un explorador del equipo (siempre arranca en el home). Permite navegar, **descargar** archivos (las carpetas bajan como `.tar.gz`), **subir** archivos desde el dispositivo (selector nativo del celular o arrastrar y soltar en escritorio; varios a la vez, con progreso), crear carpetas, renombrar y borrar (menú `⋯` de cada fila, con botones y confirmación para borrar). Una subida nunca pisa un archivo existente: agrega ` (1)`, ` (2)`… al nombre. Por defecto oculta los archivos que empiezan con punto (botón "Ocultos").
 - **Celular**: barra inferior siempre visible, sin scroll horizontal, con teclado (mostrar/ocultar), Ctrl, Enter y las cuatro flechas. El botón `^` despliega el resto: Esc, Tab, Alt, Home/End, PgUp/PgDn, símbolos frecuentes (`| ~ / - _ \`) y ^C ^D ^Z ^L. Ctrl y Alt: un toque = próxima tecla, dos = fijo. La barra no abre ni cierra el teclado del teléfono, así que sirve también para navegar historial y enviar con Enter sin teclado. Menú ⋮: cerrar panel, fuente, "Pegar texto…" (la API del portapapeles no está disponible por HTTP sin TLS).
-- **Atajos de escritorio**:
+- **Atajos de teclado (configurables)**: menú ⋮ → *Atajos de teclado…*. Hacés clic en una acción, presionás la combinación que querés y listo. Cada usuario guarda los suyos en el servidor (`data/prefs.json`, ignorado por git), así que valen desde cualquier navegador y el repo no impone ninguno. Acciones disponibles: nueva sesión, dividir a la derecha / hacia abajo, cerrar panel, renombrar sesión, **ciclar entre paneles** (siguiente / anterior), mover el foco por dirección, sesión siguiente / anterior, ir a la sesión 1…9, abrir/cerrar archivos y tamaño de fuente. Para cada una se puede quitar el atajo (✕) o volver al valor por defecto (↺).
 
-| Atajo | Acción |
-|---|---|
-| Ctrl+Alt+R / Ctrl+Alt+D | Dividir lateral / horizontal |
-| Ctrl+Alt+T | Nueva sesión |
-| Ctrl+Alt+W | Cerrar panel |
-| Ctrl+Alt+flechas | Mover el foco entre paneles |
-| Alt+PgUp / Alt+PgDn, Alt+1…9 | Cambiar de sesión |
+  Por defecto: `Ctrl+Alt+T` nueva sesión, `Ctrl+Alt+R` / `Ctrl+Alt+D` dividir lateral / horizontal, `Ctrl+Alt+W` cerrar panel, `Ctrl+Alt+PgDn/PgUp` ciclar paneles, `Ctrl+Alt+flechas` mover el foco, `Alt+PgDn/PgUp` y `Alt+1…9` cambiar de sesión, `Ctrl+Alt+F` archivos.
+
+  Reglas: la combinación debe incluir Ctrl, Alt o Meta (o ser Shift + tecla especial como PgUp, flechas o F1…, o una tecla F sola); se rechazan las que interfieren con escribir (una tecla sola, Shift + letra) o con la terminal (Ctrl + letra: Ctrl+C, Ctrl+D…). Si asignás una combinación que ya usa otra acción, se la quita a la otra y te avisa.
+
+  > ⚠️ **Los navegadores reservan algunas combinaciones** y la página no puede interceptarlas: `Ctrl+T`, `Ctrl+N`, `Ctrl+W`, `Ctrl+Shift+T/N/W`, `Ctrl+Tab`, `Ctrl+PgUp/PgDn`, `Alt+F4` y todo lo que incluya la tecla Meta/Windows. Si asignás una, el diálogo te lo advierte; es probable que no funcione en una pestaña normal. Elegí otra (por ejemplo con Alt).
 
 ## Seguridad
 
@@ -101,9 +99,9 @@ Los **comandos** se obtienen de un hook de bash (`shell/bashrc.webterm`, que car
 ```
 server.js            servidor HTTP/WebSocket, auth, PTYs, auditoría
 setup.js             usuarios e instalación del servicio
-public/              cliente (login, app, estilos, favicon); sin paso de build
+public/              cliente (login, app, atajos, estilos, favicon); sin paso de build
 shell/bashrc.webterm hook de bash para registrar comandos
-data/                (ignorado por git) usuarios, layouts, auditoría
+data/                (ignorado por git) usuarios, layouts, preferencias, auditoría
 ```
 
 ## Problemas comunes
