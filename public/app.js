@@ -410,6 +410,9 @@ const FI = {
   up: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7 9l5-5 5 5M5 20h14"/></svg>',
   edit: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   trash: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
+  term: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
+  ins: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h12M12 7l5 5-5 5M20 5v14"/></svg>',
+  play: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
   down: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>',
 };
 const F = { el: $('#files'), list: $('#flist'), bar: $('#fpath'), up: $('#fup'), pick: $('#fpick'), msg: $('#fmsg'),
@@ -453,28 +456,76 @@ function frender() {
     const full = joinPath(F.cur, e.name);
     const row = document.createElement('div');
     row.className = 'frow ' + (e.dir ? 'dir' : 'file') + (e.broken ? ' broken' : '');
-    row.insertAdjacentHTML('beforeend', e.dir ? FI.dir : FI.file); // íconos: SVG constantes
+    const kind = e.dir || e.broken ? null : thumbKind(e.name);
+    if (kind) {
+      const box = document.createElement('div'); box.className = 'fthumb' + (kind === 'image' ? ' zoom' : '');
+      const img = document.createElement('img'); img.loading = 'lazy'; img.alt = '';
+      img.src = '/api/fs/thumb?path=' + encodeURIComponent(full) + '&v=' + Math.round(e.mtime);
+      img.onerror = () => { box.replaceChildren(); box.classList.remove('zoom'); box.insertAdjacentHTML('beforeend', FI.file); };
+      box.appendChild(img);
+      if (kind === 'video') box.insertAdjacentHTML('beforeend', '<span class="play">' + FI.play + '</span>');
+      if (kind === 'image') box.title = 'Vista previa';
+      box.onclick = (ev) => { if (kind === 'image' && box.classList.contains('zoom')) { ev.stopPropagation(); fpreview(e, full); } };
+      row.appendChild(box);
+    } else row.insertAdjacentHTML('beforeend', e.dir ? FI.dir : FI.file); // íconos: SVG constantes
     const nm = document.createElement('div'); nm.className = 'fname';
     const b = document.createElement('b'); b.textContent = e.name + (e.link ? ' →' : '');
     const sm = document.createElement('small'); sm.textContent = e.broken ? 'enlace roto' : (e.dir ? '' : fmtSize(e.size) + ' · ') + fmtDate(e.mtime);
     nm.append(b, sm); row.appendChild(nm);
     row.onclick = () => { if (e.broken) return; if (e.dir) fnav(full); else fdownload(full); };
-    if (e.dir && !e.broken) {
-      row.dataset.path = full;
-      const up = document.createElement('button'); up.title = 'Subir archivos a esta carpeta'; up.insertAdjacentHTML('beforeend', FI.up);
-      up.onclick = (ev) => { ev.stopPropagation(); F.pickDir = full; F.pick.click(); }; row.appendChild(up);
-    }
+    const acts = document.createElement('div'); acts.className = 'acts';
+    const btn = (title, svg, fn, cls) => {
+      const x = document.createElement('button'); x.title = title; x.setAttribute('aria-label', title); if (cls) x.className = cls;
+      x.insertAdjacentHTML('beforeend', svg); x.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(x); return x;
+    };
+    if (e.dir && !e.broken) { row.dataset.path = full; btn('Subir archivos a esta carpeta', FI.up, () => { F.pickDir = full; F.pick.click(); }); }
     if (!e.broken) {
-      const dl = document.createElement('button'); dl.title = e.dir ? 'Descargar como .tar.gz' : 'Descargar'; dl.insertAdjacentHTML('beforeend', FI.down);
-      dl.onclick = (ev) => { ev.stopPropagation(); fdownload(full); }; row.appendChild(dl);
+      btn(e.dir ? 'Abrir en una terminal nueva' : 'Abrir su carpeta en una terminal nueva', FI.term, () => fopenTerm(full, e.dir));
+      btn('Escribir la ruta en la terminal', FI.ins, () => finsert(full));
+      btn(e.dir ? 'Descargar como .tar.gz' : 'Descargar', FI.down, () => fdownload(full));
     }
-    const ren = document.createElement('button'); ren.title = 'Renombrar'; ren.setAttribute('aria-label', 'Renombrar'); ren.insertAdjacentHTML('beforeend', FI.edit);
-    ren.onclick = (ev) => { ev.stopPropagation(); frename(e, full); }; row.appendChild(ren);
-    const del = document.createElement('button'); del.title = 'Borrar'; del.setAttribute('aria-label', 'Borrar'); del.className = 'del'; del.insertAdjacentHTML('beforeend', FI.trash);
-    del.onclick = (ev) => { ev.stopPropagation(); fdelete(e, full); }; row.appendChild(del);
+    btn('Renombrar', FI.edit, () => frename(e, full));
+    btn('Borrar', FI.trash, () => fdelete(e, full), 'del');
+    row.appendChild(acts);
     F.list.appendChild(row);
   }
 }
+const THUMB_EXT = { image: /\.(jpe?g|png|gif|webp|avif|bmp|tiff?|svg)$/i, pdf: /\.pdf$/i, video: /\.(mp4|mkv|mov|webm|avi|m4v)$/i };
+function thumbKind(name) {
+  const c = F.caps || {};
+  for (const k of ['image', 'pdf', 'video']) if (c[k] && THUMB_EXT[k].test(name)) return k;
+  return null;
+}
+// ruta lista para pegar en una shell: con ~ si está bajo el home y entre comillas solo si hace falta
+function shellPath(full) {
+  const q = (x) => /^[A-Za-z0-9_\/.,:@%+=-]+$/.test(x) ? x : "'" + x.replace(/'/g, "'\\''") + "'";
+  return F.home && (full === F.home || full.startsWith(F.home + '/')) ? (full === F.home ? '~' : '~/' + q(full.slice(F.home.length + 1))) : q(full);
+}
+function finsert(full) {
+  const p = panes.get(focusedId());
+  if (!p) return fmsg('No hay una terminal activa.');
+  send(p, shellPath(full) + ' '); imeReset();
+  closeFiles();
+}
+async function fopenTerm(full, isDir) {
+  try {
+    const { id } = await fapi('POST', '/api/panes', { cwd: full });
+    const dirPath = isDir ? full : full.replace(/\/[^/]*$/, '') || '/';
+    const base = dirPath.split('/').filter(Boolean).pop() || '/';
+    const s = { id: uid(), name: base.slice(0, 24), root: { pane: id }, focus: id };
+    sessions.push(s); active = s.id;
+    closeFiles(); render();
+  } catch (e) { fmsg(e.message); }
+}
+function fpreview(e, full) {
+  const d = $('#prev'), img = d.querySelector('img');
+  img.src = '/api/fs/view?path=' + encodeURIComponent(full); img.alt = e.name;
+  d.querySelector('.cap').textContent = `${e.name} · ${fmtSize(e.size)}`;
+  d.querySelector('[data-pv=dl]').onclick = () => fdownload(full);
+  d.showModal();
+}
+$('#prev').addEventListener('click', (ev) => { if (ev.target.closest('[data-pv=dl]')) return; $('#prev').close(); });
+$('#prev').addEventListener('close', () => { $('#prev img').removeAttribute('src'); });
 function fdownload(full) {
   const a = document.createElement('a');
   a.href = '/api/fs/download?path=' + encodeURIComponent(full); a.download = ''; document.body.appendChild(a); a.click(); a.remove();
@@ -565,6 +616,8 @@ function fnav(p) {
   fload(p);
 }
 function openFiles() { // siempre abre en el home
+  const sy = $('#sys'); if (sy && !sy.hidden) return; // un solo panel lateral a la vez
+  if (!F.caps) fapi('GET', '/api/capabilities').then((c) => { F.caps = c.thumbs || {}; if (!F.el.hidden && F.cur) frender(); }).catch(() => { F.caps = {}; });
   F.el.hidden = false; F.depth = 1; history.pushState({ wt: 'files', d: 1, path: null }, '');
   fload('');
 }
@@ -616,4 +669,5 @@ F.el.addEventListener('drop', (e) => {
   const r = dropRow(e); F.list.querySelectorAll('.frow.drop').forEach((x) => x.classList.remove('drop'));
   if (e.dataTransfer.files.length) fupload([...e.dataTransfer.files], r ? r.dataset.path : F.cur);
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !F.el.hidden && !document.querySelector('dialog[open]')) closeFiles(); });
+// en captura: con el foco en la terminal, xterm consumiría la tecla Esc antes de que llegue acá
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !F.el.hidden && !document.querySelector('dialog[open]')) { e.stopPropagation(); closeFiles(); } }, true);

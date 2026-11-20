@@ -17,6 +17,22 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DATA = process.env.WEBTERM_DATA || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA, 'users.json');
 const LAYOUT_FILE = path.join(DATA, 'layouts.json');
+const SMTP_FILE = path.join(DATA, 'smtp.json');
+const THUMB_DIR = path.join(DATA, 'thumbs');
+const TLS_DIR = path.join(DATA, 'tls');
+const sysinfo = require('./lib/status');
+const mail = require('./lib/mail');
+const thumbs = require('./lib/thumbs');
+const { PtyHub } = require('./lib/ptyhub');
+const net = require('net');
+const SESSIONS_FILE = path.join(DATA, 'sessions.json');
+const PERSIST = process.env.WEBTERM_PERSIST !== '0'; // terminales que sobreviven a reinicios (demonio lib/ptyd.js)
+// los sockets Unix admiten ~100 caracteres de ruta: si data/ está muy profundo, usar el directorio de runtime del usuario
+const PTYD_SOCK = (() => {
+  const own = path.join(DATA, 'ptyd.sock');
+  if (own.length <= 100) return own;
+  return path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), `webterm-${crypto.createHash('sha1').update(DATA).digest('hex').slice(0, 10)}.sock`);
+})();
 const SESSION_TTL = 12 * 3600 * 1000; // inactividad máxima
 const SCROLLBACK_BYTES = 256 * 1024;
 const COOKIE = 'webterm_sid';
@@ -53,7 +69,21 @@ if (!Object.keys(loadUsers()).length) {
 }
 
 // ---------- sesiones HTTP ----------
-const sessions = new Map(); // sid -> {user, last}
+// Sobreviven a reinicios: se guardan en data/sessions.json con el hash del identificador (nunca el valor de la cookie).
+const sessions = new Map(); // sha256(sid) -> {user, last}
+const sidHash = (sid) => crypto.createHash('sha256').update(sid).digest('hex');
+try {
+  const saved = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')), now = Date.now();
+  for (const [k, v] of Object.entries(saved)) if (v && typeof v.user === 'string' && now - v.last <= SESSION_TTL) sessions.set(k, { user: v.user, last: v.last });
+} catch {}
+let sessSaveT = null, sessSavedAt = 0;
+function saveSessions() {
+  clearTimeout(sessSaveT);
+  sessSaveT = setTimeout(() => {
+    try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(sessions)), { mode: 0o600 }); fs.chmodSync(SESSIONS_FILE, 0o600); } catch {}
+    sessSavedAt = Date.now();
+  }, 500);
+}
 function parseCookies(h) {
   const out = {};
   (h || '').split(';').forEach((p) => {
@@ -64,15 +94,18 @@ function parseCookies(h) {
 }
 function sessionFrom(req) {
   const sid = parseCookies(req.headers.cookie)[COOKIE];
-  const s = sid && sessions.get(sid);
+  const key = sid && sidHash(sid), s = key && sessions.get(key);
   if (!s) return null;
-  if (Date.now() - s.last > SESSION_TTL) { sessions.delete(sid); return null; }
-  s.last = Date.now();
-  return { sid, user: s.user };
+  const now = Date.now();
+  if (now - s.last > SESSION_TTL) { sessions.delete(key); saveSessions(); return null; }
+  s.last = now;
+  if (now - sessSavedAt > 60000) saveSessions(); // la expiración deslizante se persiste como mucho una vez por minuto
+  return { sid: key, user: s.user };
 }
 setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of sessions) if (now - v.last > SESSION_TTL) sessions.delete(k);
+  const now = Date.now(); let changed = false;
+  for (const [k, v] of sessions) if (now - v.last > SESSION_TTL) { sessions.delete(k); changed = true; }
+  if (changed) saveSessions();
 }, 600000).unref();
 
 // ---------- anti fuerza bruta ----------
@@ -91,20 +124,9 @@ function registerFail(ip) {
 
 // ---------- panes (PTYs) ----------
 const panes = new Map(); // id -> {pty, buf:[], size, clients:Set}
-function newPane(fromId, user) {
-  let cwd = process.env.HOME || '/';
-  const src = fromId && panes.get(fromId);
-  if (src) { try { cwd = fs.readlinkSync(`/proc/${src.pty.pid}/cwd`); } catch {} }
-  const shell = process.env.SHELL || '/bin/bash';
-  const id = crypto.randomBytes(6).toString('hex');
-  const nonce = crypto.randomBytes(12).toString('hex');
-  const isBash = path.basename(shell) === 'bash';
-  const p = pty.spawn(shell, isBash ? ['--rcfile', path.join(__dirname, 'shell', 'bashrc.webterm'), '-i'] : [], {
-    name: 'xterm-256color', cols: 80, rows: 24, cwd,
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', WEBTERM_NONCE: nonce },
-  });
-  const pane = { pty: p, buf: [], size: 0, clients: new Set(), user, nonce, tail: '' };
-  audit('pane_new', { user, pane: id, cwd, shell, cmd_logging: isBash });
+let hub = null; // cliente del demonio de terminales (si la persistencia está activa)
+function wirePane(id, p, user, nonce, replay) {
+  const pane = { pty: p, buf: replay ? [replay] : [], size: replay ? replay.length : 0, clients: new Set(), user, nonce, tail: '' };
   p.onData((d) => {
     d = extractCommands(pane, id, d);
     if (!d) return;
@@ -120,7 +142,41 @@ function newPane(fromId, user) {
     panes.delete(id);
   });
   panes.set(id, pane);
+  return pane;
+}
+async function newPane(fromId, user, cwdOverride) {
+  let cwd = process.env.HOME || '/';
+  const src = fromId && panes.get(fromId);
+  if (cwdOverride) cwd = cwdOverride;
+  else if (src && src.pty.pid) { try { cwd = fs.readlinkSync(`/proc/${src.pty.pid}/cwd`); } catch {} }
+  const shell = process.env.SHELL || '/bin/bash';
+  const id = crypto.randomBytes(6).toString('hex');
+  const nonce = crypto.randomBytes(12).toString('hex');
+  const isBash = path.basename(shell) === 'bash';
+  const args = isBash ? ['--rcfile', path.join(__dirname, 'shell', 'bashrc.webterm'), '-i'] : [];
+  const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', WEBTERM_NONCE: nonce };
+  let p;
+  if (hub) {
+    await hub.ensure();
+    p = hub.spawnPty(id, { shell, args, cwd, env, cols: 80, rows: 24, meta: { user, nonce, cwd, shell } });
+  } else p = pty.spawn(shell, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd, env });
+  wirePane(id, p, user, nonce, '');
+  audit('pane_new', { user, pane: id, cwd, shell, cmd_logging: isBash });
   return id;
+}
+// Al arrancar: reconectar con el demonio y recuperar las terminales que quedaron vivas
+async function initPersistence() {
+  try {
+    const h = new PtyHub(PTYD_SOCK, __dirname);
+    await h.ensure();
+    const list = await h.list();
+    hub = h;
+    for (const x of list) {
+      wirePane(x.id, hub.adopt(x.id, x.pid), x.meta.user, x.meta.nonce, x.buf);
+      audit('pane_restored', { user: x.meta.user, pane: x.id });
+    }
+    if (list.length) console.log(`${list.length} terminal(es) recuperada(s) tras el reinicio`);
+  } catch (e) { console.error('Persistencia de terminales desactivada:', e.message); hub = null; }
 }
 // Extrae (y quita del flujo) las secuencias OSC 777 que emite el hook de bash: ESC ] 777 ; wt:<nonce> ; <base64> BEL
 function extractCommands(pane, id, d) {
@@ -188,7 +244,28 @@ app.get('/login', (req, res) => {
   if (sessionFrom(req)) return res.redirect('/');
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
-app.post('/login', (req, res) => {
+// ---------- segundo factor por correo ----------
+const pending2fa = new Map(); // token -> {user, email, hash, salt, exp, tries, ip, sends, lastSend}
+setInterval(() => { const n = Date.now(); for (const [k, v] of pending2fa) if (v.exp < n) pending2fa.delete(k); }, 60000).unref();
+const uaOf = (req) => (req.headers['user-agent'] || '').slice(0, 120);
+const hashCode = (code, salt) => crypto.createHash('sha256').update(salt + code).digest('hex');
+function startSession(req, res, user) {
+  const sid = crypto.randomBytes(32).toString('hex');
+  sessions.set(sidHash(sid), { user, last: Date.now() });
+  saveSessions();
+  res.setHeader('Set-Cookie',
+    `${COOKIE}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL / 1000}${isSecure(req) ? '; Secure' : ''}`);
+}
+async function sendCode(req, p, token) {
+  const cfg = mail.loadSmtp(SMTP_FILE); if (!cfg) throw new Error('SMTP no configurado');
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  p.salt = crypto.randomBytes(8).toString('hex'); p.hash = hashCode(code, p.salt); p.exp = Date.now() + 10 * 60000; p.tries = 0;
+  p.sends++; p.lastSend = Date.now();
+  await mail.sendMail(cfg, { to: p.email, subject: `Tu código de acceso a webterm: ${code}`,
+    text: `Tu código de acceso es ${code}.\n\nVence en 10 minutos.\n\nSolicitado desde ${ipOf(req)} (${uaOf(req) || 'navegador desconocido'}) el ${new Date().toLocaleString()}.\nSi no fuiste vos, alguien conoce tu contraseña: cambiala y no compartas este código.\n` });
+  audit('login_2fa_sent', { user: p.user, ip: ipOf(req), to: mail.maskEmail(p.email) });
+}
+app.post('/login', async (req, res) => {
   const ip = ipOf(req);
   const wait = lockedFor(ip);
   if (wait) { audit('login_blocked', { ip, wait_s: wait }); return res.status(429).json({ error: `Demasiados intentos. Esperá ${wait}s.` }); }
@@ -196,20 +273,55 @@ app.post('/login', (req, res) => {
   if (typeof user !== 'string' || typeof password !== 'string' || !user || password.length > 512
       || !verifyPassword(user, password)) {
     registerFail(ip);
-    audit('login_fail', { ip, user: typeof user === 'string' ? user.slice(0, 64) : null, ua: (req.headers['user-agent'] || '').slice(0, 120) });
+    audit('login_fail', { ip, user: typeof user === 'string' ? user.slice(0, 64) : null, ua: uaOf(req) });
     return setTimeout(() => res.status(401).json({ error: 'Usuario o contraseña incorrectos.' }), 600);
   }
+  const email = loadUsers()[user]?.email;
+  if (email) { // el usuario tiene 2FA: la contraseña sola no alcanza
+    const token = crypto.randomBytes(24).toString('hex');
+    const p = { user, email, ip, sends: 0, lastSend: 0 };
+    try { await sendCode(req, p, token); } catch (e) {
+      audit('login_2fa_error', { user, ip, error: String(e.message).slice(0, 160) });
+      return res.status(502).json({ error: 'No se pudo enviar el código por correo. Revisá la configuración SMTP del servidor.' });
+    }
+    pending2fa.set(token, p);
+    return res.json({ need2fa: true, token, hint: mail.maskEmail(email) });
+  }
   fails.delete(ip);
-  audit('login_ok', { ip, user, ua: (req.headers['user-agent'] || '').slice(0, 120) });
-  const sid = crypto.randomBytes(32).toString('hex');
-  sessions.set(sid, { user, last: Date.now() });
-  res.setHeader('Set-Cookie',
-    `${COOKIE}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL / 1000}${isSecure(req) ? '; Secure' : ''}`);
+  audit('login_ok', { ip, user, ua: uaOf(req) });
+  startSession(req, res, user);
   res.json({ ok: true });
 });
+app.post('/login/verify', (req, res) => {
+  const ip = ipOf(req), wait = lockedFor(ip);
+  if (wait) return res.status(429).json({ error: `Demasiados intentos. Esperá ${wait}s.` });
+  const { token, code } = req.body || {};
+  const p = typeof token === 'string' && pending2fa.get(token);
+  if (!p || p.ip !== ip || p.exp < Date.now()) return res.status(401).json({ error: 'El código venció. Volvé a iniciar sesión.', expired: true });
+  const ok = typeof code === 'string' && /^\d{6}$/.test(code.trim())
+    && crypto.timingSafeEqual(Buffer.from(hashCode(code.trim(), p.salt)), Buffer.from(p.hash));
+  if (!ok) {
+    registerFail(ip); audit('login_2fa_fail', { user: p.user, ip });
+    if (++p.tries >= 5) { pending2fa.delete(token); return res.status(401).json({ error: 'Demasiados intentos con el código. Volvé a iniciar sesión.', expired: true }); }
+    return setTimeout(() => res.status(401).json({ error: 'Código incorrecto.' }), 500);
+  }
+  pending2fa.delete(token); fails.delete(ip);
+  audit('login_ok', { ip, user: p.user, ua: uaOf(req), twofa: true });
+  startSession(req, res, p.user);
+  res.json({ ok: true });
+});
+app.post('/login/resend', async (req, res) => {
+  const ip = ipOf(req), p = typeof req.body?.token === 'string' && pending2fa.get(req.body.token);
+  if (!p || p.ip !== ip) return res.status(401).json({ error: 'Volvé a iniciar sesión.', expired: true });
+  if (Date.now() - p.lastSend < 30000) return res.status(429).json({ error: 'Esperá unos segundos antes de pedir otro código.' });
+  if (p.sends >= 3) return res.status(429).json({ error: 'Ya se envió el código varias veces. Volvé a iniciar sesión.', expired: true });
+  try { await sendCode(req, p, req.body.token); res.json({ ok: true, hint: mail.maskEmail(p.email) }); }
+  catch (e) { audit('login_2fa_error', { user: p.user, ip, error: String(e.message).slice(0, 160) }); res.status(502).json({ error: 'No se pudo enviar el código.' }); }
+});
+
 app.post('/logout', (req, res) => {
   const s = sessionFrom(req);
-  if (s) { audit('logout', { ip: ipOf(req), user: s.user }); sessions.delete(s.sid); }
+  if (s) { audit('logout', { ip: ipOf(req), user: s.user }); sessions.delete(s.sid); saveSessions(); }
   res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
   res.json({ ok: true });
 });
@@ -217,6 +329,12 @@ app.use('/vendor/xterm', express.static(path.join(__dirname, 'node_modules/@xter
 app.use('/vendor/fit', express.static(path.join(__dirname, 'node_modules/@xterm/addon-fit')));
 app.use('/vendor/links', express.static(path.join(__dirname, 'node_modules/@xterm/addon-web-links')));
 app.get('/favicon.svg', (req, res) => res.type('image/svg+xml').sendFile(path.join(__dirname, 'public', 'favicon.svg')));
+app.get('/ca.pem', (req, res) => { // certificado público de la autoridad propia, para instalarlo en el teléfono/PC
+  const f = path.join(TLS_DIR, 'ca.pem');
+  if (!fs.existsSync(f)) return res.status(404).end();
+  res.type('application/x-x509-ca-cert').setHeader('Content-Disposition', 'attachment; filename="webterm-ca.pem"');
+  res.send(fs.readFileSync(f));
+});
 app.get('/login.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'public', 'style.css')));
 
@@ -230,6 +348,7 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.js')));
 app.get('/shortcuts.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'shortcuts.js')));
+app.get('/system.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'system.js')));
 
 app.get('/api/state', (req, res) => {
   res.json({ user: req.user, layout: loadLayouts()[req.user] || null, panes: [...panes.keys()] });
@@ -248,9 +367,17 @@ app.put('/api/prefs', (req, res) => {
   fs.writeFileSync(PREFS_FILE, JSON.stringify(all, null, 2), { mode: 0o600 });
   res.json({ ok: true });
 });
-app.post('/api/panes', (req, res) => {
-  const from = typeof req.body?.from === 'string' ? req.body.from : null;
-  res.json({ id: newPane(from, req.user) });
+app.post('/api/panes', async (req, res) => {
+  try {
+    const from = typeof req.body?.from === 'string' ? req.body.from : null;
+    let cwd = null;
+    if (req.body?.cwd !== undefined) { // "abrir en terminal": la shell arranca en esa carpeta (o en la carpeta del archivo)
+      cwd = absPath(req.body.cwd);
+      const st = await fsp.stat(cwd);
+      if (!st.isDirectory()) cwd = path.dirname(cwd);
+    }
+    res.json({ id: await newPane(from, req.user, cwd) });
+  } catch (e) { fsFail(res, e); }
 });
 app.delete('/api/panes/:id', (req, res) => { killPane(req.params.id); res.json({ ok: true }); });
 
@@ -374,10 +501,51 @@ app.post('/api/fs/delete', async (req, res) => {
   } catch (e) { fsFail(res, e); }
 });
 
+// ---------- estado del equipo, registro y miniaturas ----------
+app.get('/api/status', async (req, res) => {
+  try { res.json({ ...(await sysinfo.status()), me: os.userInfo().username, webterm: { panes: panes.size, sessions: sessions.size, pid: process.pid, node: process.version, tls: USE_TLS, twofa: !!mail.loadSmtp(SMTP_FILE) } }); }
+  catch (e) { res.status(500).json({ error: 'No se pudo leer el estado: ' + e.message }); }
+});
+app.get('/api/audit', (req, res) => {
+  const cat = typeof req.query.cat === 'string' ? req.query.cat : '', q = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : '';
+  res.json({ entries: sysinfo.readAudit(AUDIT_FILE, { limit: +req.query.limit || 300, cat, q }) });
+});
+app.post('/api/proc/kill', (req, res) => {
+  const pid = Number(req.body?.pid), sig = req.body?.signal === 'KILL' ? 'SIGKILL' : 'SIGTERM';
+  if (!Number.isInteger(pid) || pid <= 1) return res.status(400).json({ error: 'PID inválido' });
+  if (pid === process.pid) return res.status(400).json({ error: 'Ese es el propio webterm; reinicialo desde systemd.' });
+  try { process.kill(pid, sig); fsAudit('proc_kill', req, { pid, signal: sig }); res.json({ ok: true }); }
+  catch (e) { res.status(e.code === 'ESRCH' ? 404 : 403).json({ error: e.code === 'ESRCH' ? 'El proceso ya no existe' : 'Sin permiso para terminar ese proceso' }); }
+});
+app.get('/api/fs/thumb', async (req, res) => {
+  try {
+    const p = absPath(req.query.path), st = await fsp.stat(p);
+    fs.mkdirSync(THUMB_DIR, { recursive: true, mode: 0o700 });
+    const out = await thumbs.thumbFor(THUMB_DIR, p, st);
+    if (!out) return res.status(404).json({ error: 'Sin miniatura' });
+    res.type('image/webp').sendFile(out, { cacheControl: false, headers: { 'Cache-Control': 'private, max-age=86400' } });
+  } catch (e) { fsFail(res, e.code ? e : Object.assign(e, { status: 404 })); }
+});
+app.get('/api/fs/view', async (req, res) => { // vista previa de imágenes en línea (no descarga)
+  try {
+    const p = absPath(req.query.path), st = await fsp.stat(p);
+    if (!st.isFile() || !thumbs.isImage(p)) throw httpErr(400, 'Solo se pueden previsualizar imágenes');
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:");
+    fsAudit('fs_view', req, { path: p, size: st.size });
+    res.sendFile(p, { dotfiles: 'allow', cacheControl: false, headers: { 'Cache-Control': 'private, max-age=300' } });
+  } catch (e) { fsFail(res, e); }
+});
+app.get('/api/capabilities', (req, res) => res.json({ thumbs: thumbs.caps }));
+thumbs.cleanup(THUMB_DIR);
+
 // ---------- servidor + websocket ----------
+// HTTPS: certificado indicado por TLS_CERT/TLS_KEY o, si existe, el autofirmado de data/tls (node setup.js tls)
+const tlsCert = process.env.TLS_CERT || path.join(TLS_DIR, 'cert.pem');
+const tlsKey = process.env.TLS_KEY || path.join(TLS_DIR, 'key.pem');
+const USE_TLS = fs.existsSync(tlsCert) && fs.existsSync(tlsKey);
 let server;
-if (process.env.TLS_CERT && process.env.TLS_KEY) {
-  server = https.createServer({ cert: fs.readFileSync(process.env.TLS_CERT), key: fs.readFileSync(process.env.TLS_KEY) }, app);
+if (USE_TLS) {
+  server = https.createServer({ cert: fs.readFileSync(tlsCert), key: fs.readFileSync(tlsKey), minVersion: 'TLSv1.2' }, app);
 } else {
   server = http.createServer(app);
 }
@@ -408,8 +576,30 @@ function attach(ws, id, user, ip) {
   ws.on('error', () => pane.clients.delete(ws));
 }
 
-server.listen(PORT, HOST, () => {
-  const proto = process.env.TLS_CERT ? 'https' : 'http';
-  console.log(`webterm escuchando en ${proto}://${HOST}:${PORT}`);
-});
-process.on('SIGTERM', () => { for (const id of panes.keys()) killPane(id); process.exit(0); });
+function listenAll() {
+  const done = () => console.log(`webterm escuchando en ${USE_TLS ? 'https' : 'http'}://${HOST}:${PORT}${USE_TLS ? ' (HTTP en el mismo puerto redirige a HTTPS)' : ''}`);
+  if (!USE_TLS) return server.listen(PORT, HOST, done);
+  // Mismo puerto para ambos: se mira el primer byte (0x16 = inicio de un handshake TLS); lo demás es HTTP plano y se redirige.
+  const redirect = http.createServer((req, res) => {
+    const host = String(req.headers.host || '');
+    try {
+      if (!/^[A-Za-z0-9.\-:\[\]]{1,255}$/.test(host)) { res.writeHead(400); return res.end('Solicitud inválida'); }
+      res.writeHead(308, { Location: `https://${host}${req.url}`, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(`Este sitio usa HTTPS: https://${host}\n`);
+    } catch { try { res.writeHead(400); res.end(); } catch {} }
+  });
+  redirect.on('clientError', (e, sock) => sock.destroy());
+  net.createServer((sock) => {
+    sock.setTimeout(15000, () => sock.destroy());
+    sock.on('error', () => {});
+    sock.once('data', (buf) => {
+      sock.setTimeout(0); sock.pause(); sock.unshift(buf);
+      (buf[0] === 0x16 ? server : redirect).emit('connection', sock);
+      process.nextTick(() => sock.resume());
+    });
+  }).listen(PORT, HOST, done);
+}
+(async () => { if (PERSIST) await initPersistence(); listenAll(); })();
+// Con persistencia, apagar el servidor NO cierra las terminales (siguen en el demonio). Sin ella, sí.
+const bye = () => { if (!hub) for (const id of panes.keys()) killPane(id); process.exit(0); };
+process.on('SIGTERM', bye); process.on('SIGINT', bye);

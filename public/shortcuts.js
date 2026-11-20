@@ -26,6 +26,8 @@ const SC_ACTIONS = [
   { id: 'prevSession', group: 'Cambiar de sesión', label: 'Sesión anterior', def: 'Alt+PageUp', run: () => switchSession(-1) },
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ id: 'goto' + n, group: 'Cambiar de sesión', label: 'Ir a la sesión ' + n, def: 'Alt+' + n, run: () => gotoSession(n) })),
   { id: 'toggleFiles', group: 'Otros', label: 'Abrir/cerrar archivos', def: 'Ctrl+Alt+F', run: () => actions.files() },
+  { id: 'toggleStatus', group: 'Otros', label: 'Estado del equipo', def: '', run: () => actions.status() },
+  { id: 'toggleLog', group: 'Otros', label: 'Registro de actividad', def: '', run: () => actions.log() },
   { id: 'fontUp', group: 'Otros', label: 'Aumentar fuente', def: '', run: () => setFont(1) },
   { id: 'fontDown', group: 'Otros', label: 'Reducir fuente', def: '', run: () => setFont(-1) },
 ];

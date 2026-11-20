@@ -20,6 +20,16 @@
   <button type="submit">Entrar</button>
   <p id="err"></p>
 </form>
+<form id="f2" hidden autocomplete="off">
+  <img src="/favicon.svg" alt="" width="64" height="64">
+  <h1>Verificación</h1>
+  <p class="sub" id="hint2"></p>
+  <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="Código de 6 dígitos" required>
+  <button type="submit">Verificar</button>
+  <button type="button" id="resend" class="link">Reenviar código</button>
+  <button type="button" id="back" class="link">Volver</button>
+  <p id="err2"></p>
+</form>
 <script src="/login.js"></script>
 </body>
 </html>

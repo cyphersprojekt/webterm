@@ -27,6 +27,8 @@
   <button data-act="paste">Pegar texto…</button>
   <button data-act="fontUp">Fuente +</button>
   <button data-act="fontDown">Fuente −</button>
+  <button data-act="status">Estado del equipo</button>
+  <button data-act="log">Registro de actividad</button>
   <button data-act="shortcuts">Atajos de teclado…</button>
   <button data-act="logout">Salir</button>
 </div>
@@ -81,12 +83,27 @@
   <div id="fdrop">Soltá los archivos: se suben a la carpeta actual, o a la carpeta sobre la que los sueltes</div>
   <input type="file" id="fpick" multiple hidden>
 </section>
+<section id="sys" hidden aria-label="Sistema">
+  <div class="fhead">
+    <div class="stabs"><button data-st="status" class="on">Estado</button><button data-st="log">Registro</button></div>
+    <button data-sa="close" title="Cerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <div id="sbody-status" class="sbody"></div>
+  <div id="sbody-log" class="sbody slogwrap" hidden>
+    <div id="slogbar"></div>
+    <div id="slog"></div>
+  </div>
+</section>
 <div id="status" hidden></div>
 <dialog id="fdlg">
   <h3></h3>
   <p></p>
   <input type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
   <div class="fbtns"></div>
+</dialog>
+<dialog id="prev">
+  <img alt="">
+  <div class="pvbar"><span class="cap"></span><button type="button" data-pv="dl">Descargar</button><button type="button">Cerrar</button></div>
 </dialog>
 <dialog id="scdlg">
   <h3>Atajos de teclado</h3>
@@ -106,5 +123,6 @@
 <script src="/vendor/links/lib/addon-web-links.js"></script>
 <script src="/app.js"></script>
 <script src="/shortcuts.js"></script>
+<script src="/system.js"></script>
 </body>
 </html>

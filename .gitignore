@@ -1,7 +1,7 @@
 # dependencias
 node_modules/
 
-# datos locales: usuarios (hashes), layouts y auditoría. NUNCA subir
+# datos locales: usuarios, sesiones, claves y certificados TLS, config SMTP, auditoría. NUNCA subir
 data/
 
 # logs y temporales
@@ -19,3 +19,11 @@ npm-debug.log*
 
 # herramientas
 .claude/settings.local.json
+
+# sockets y temporales de ejecución
+*.sock
+*.tmp
+
+# editores
+.vscode/
+.idea/
