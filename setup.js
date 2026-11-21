@@ -6,6 +6,7 @@
 //   node setup.js smtp            configura el servidor de correo (para el segundo factor)
 //   node setup.js email [usuario] [--remove]   activa/quita el segundo factor por correo de un usuario
 //   node setup.js tls [--name X] [--force]     genera el certificado HTTPS autofirmado
+//   node setup.js totp [usuario] [--remove]   activa/quita el segundo factor con app (Google Authenticator, Aegis…)
 //   node setup.js service         instala/actualiza el servicio systemd de usuario
 //       [--port N] [--host H] [--no-start]
 //   node setup.js stop-terminals  cierra TODAS las terminales abiertas (el servicio no lo hace al reiniciarse)
@@ -17,6 +18,7 @@ const crypto = require('crypto');
 const readline = require('readline');
 const { spawnSync } = require('child_process');
 const mail = require('./lib/mail');
+const totp = require('./lib/totp');
 
 const DATA = process.env.WEBTERM_DATA || path.join(__dirname, 'data');
 const USERS = path.join(DATA, 'users.json');
@@ -54,8 +56,43 @@ async function setupUser(name) {
   users[user] = { ...users[user], salt: salt.toString('hex'), hash: hash.toString('hex') };
   fs.writeFileSync(USERS, JSON.stringify(users, null, 2), { mode: 0o600 }); fs.chmodSync(USERS, 0o600);
   console.log(`✔ Usuario "${user}" guardado.`);
+  forgetDevices(user); // cambiar la contraseña invalida los dispositivos recordados
   if (mail.loadSmtp(SMTP) && !users[user].email && await confirm('¿Activar el segundo factor por correo para este usuario?')) await setupEmail(user);
   return user;
+}
+
+function forgetDevices(user) {
+  const f = path.join(DATA, 'devices.json');
+  try { const all = JSON.parse(fs.readFileSync(f, 'utf8')); let n = 0; for (const k of Object.keys(all)) if (all[k].user === user) { delete all[k]; n++; } if (n) { fs.writeFileSync(f, JSON.stringify(all), { mode: 0o600 }); console.log(`  (se olvidaron ${n} dispositivo(s) recordado(s))`); } } catch {}
+}
+// QR en la terminal con colores fijos (negro sobre blanco, con margen): se lee igual con temas claros u oscuros
+function renderQr(text) {
+  const q = require('qrcode').create(text, { errorCorrectionLevel: 'M' }).modules, n = q.size, Q = 2, total = n + 2 * Q;
+  const dark = (x, y) => x >= Q && y >= Q && x < n + Q && y < n + Q && q.get(x - Q, y - Q) === 1;
+  const lines = [];
+  for (let y = 0; y < total; y += 2) {
+    let row = '';
+    for (let x = 0; x < total; x++) row += `\x1b[${dark(x, y) ? 30 : 97};${dark(x, y + 1) ? 40 : 107}m▀\x1b[0m`;
+    lines.push('  ' + row);
+  }
+  return lines.join('\n');
+}
+async function setupTotp(name) {
+  const users = readUsers(), user = name || (await ask('Usuario: ')).trim();
+  if (!users[user]) throw new Error(`El usuario "${user}" no existe.`);
+  if (hasFlag('--remove')) { delete users[user].totp; fs.writeFileSync(USERS, JSON.stringify(users, null, 2), { mode: 0o600 }); console.log(`✔ "${user}" ya no usa app de códigos.`); return; }
+  const secret = totp.newSecret();
+  console.log('\nAgregá esta cuenta en tu app de autenticación (Google Authenticator, Aegis, Authy, 1Password…) con "Ingresar clave manualmente":');
+  try { // código QR en la terminal (si el módulo no está, queda la clave manual)
+    const qr = renderQr(totp.uri(user, secret));
+    console.log('\nEscaneá este código con la app (o cargá la clave a mano, abajo):\n\n' + qr);
+  } catch { /* sin QR */ }
+  console.log(`  Clave:  ${secret.match(/.{1,4}/g).join(' ')}\n  Tipo:   basado en tiempo (TOTP), 6 dígitos, 30 s\n  O la dirección completa:  ${totp.uri(user, secret)}\n`);
+  const code = (await ask('Escribí el código que muestra la app para confirmar: ')).trim();
+  if (totp.verify(secret, code) === null) throw new Error('El código no coincide (revisá la hora del equipo y del teléfono). No se activó.');
+  users[user].totp = secret; fs.writeFileSync(USERS, JSON.stringify(users, null, 2), { mode: 0o600 }); fs.chmodSync(USERS, 0o600);
+  console.log(`✔ Listo: "${user}" ahora entra con el código de la app. (El correo, si está configurado, queda como respaldo.)`);
+  console.log(`  La clave queda guardada en ${USERS}; protegé ese archivo. Para quitarlo:  node setup.js totp ${user} --remove`);
 }
 
 // ---------- correo (SMTP) y segundo factor ----------
@@ -226,6 +263,7 @@ function uninstall() {
     else if (cmd === 'smtp') await setupSmtp();
     else if (cmd === 'email') await setupEmail(arg && !arg.startsWith('--') ? arg : undefined);
     else if (cmd === 'tls') await setupTls(false);
+    else if (cmd === 'totp') await setupTotp(arg && !arg.startsWith('--') ? arg : undefined);
     else if (cmd === 'service') await setupService(false);
     else if (cmd === 'stop-terminals') await stopTerminals();
     else if (cmd === 'uninstall') uninstall();

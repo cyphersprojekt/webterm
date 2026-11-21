@@ -6,6 +6,7 @@
 <meta name="robots" content="noindex">
 <title>webterm</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/favicon.svg">
 <meta name="theme-color" content="#1e1f29">
 <link rel="stylesheet" href="/style.css">
@@ -25,6 +26,7 @@
   <h1>Verificación</h1>
   <p class="sub" id="hint2"></p>
   <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="Código de 6 dígitos" required>
+  <label class="remember"><input type="checkbox" id="remember"> Recordar este dispositivo 30 días</label>
   <button type="submit">Verificar</button>
   <button type="button" id="resend" class="link">Reenviar código</button>
   <button type="button" id="back" class="link">Volver</button>

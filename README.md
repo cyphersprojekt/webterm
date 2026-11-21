@@ -74,6 +74,7 @@ Si preferís no usar el servicio: `npm start` (variables `PORT` y `HOST`, por de
 | `node setup.js smtp` | Configura el servidor de correo para el segundo factor |
 | `node setup.js email [usuario] [--remove]` | Activa o quita el segundo factor por correo de un usuario |
 | `node setup.js tls [--name X] [--force]` | Genera el certificado HTTPS autofirmado |
+| `node setup.js totp [usuario] [--remove]` | Activa o quita el segundo factor con app de códigos (Google Authenticator, Aegis…) |
 | `node setup.js service [--port N] [--host H] [--no-start]` | Instala/actualiza el servicio |
 | `node setup.js stop-terminals` | Cierra **todas** las terminales abiertas (reiniciar el servicio ya no las cierra) |
 | `node setup.js uninstall` | Desinstala el servicio (conserva `data/`) |
@@ -90,7 +91,16 @@ Reiniciar el servicio **no** cierra las terminales ni tu sesión de login (ver *
   - **Miniaturas** de imágenes, PDF y videos; tocar la miniatura de una imagen abre una **vista previa** con botón de descarga.
   - **Escribir la ruta en la terminal** (`→|`): inserta la ruta del archivo o carpeta en la línea de comandos de la terminal activa, con `~` si está bajo el home y entre comillas si hace falta (por ejemplo `~/'mi carpeta/archivo.txt'`).
   - **Abrir en una terminal nueva** (`>_`): crea una sesión cuya shell arranca en esa carpeta (o en la carpeta del archivo).
+  - **Mover y copiar**: botón *Seleccionar* → elegí varios elementos → *Copiar* o *Cortar* → andá a la carpeta destino → *Pegar aquí*. También *Bajar .zip* (varios elementos de una carpeta en un solo archivo) y *Borrar* en lote.
+  - **Buscar y ordenar**: el campo de arriba filtra la carpeta actual al escribir; con Enter busca por nombre en las subcarpetas. El botón *Orden* alterna nombre / fecha / tamaño.
+  - **Ver y editar archivos de texto** (hasta 1 MB): botón de documento en cada fila. Guarda con el botón o Ctrl+S, y avisa si el archivo cambió en el equipo mientras lo editabas, para no pisar esos cambios.
 - **Estado del equipo**: menú ⋮ → *Estado del equipo*. CPU (uso y carga), temperatura, memoria y swap, discos, servicios de systemd con fallas y los procesos que más CPU usan, con botón para terminarlos (solo los tuyos). Se actualiza cada 3 segundos.
+- **Maximizar un panel**: el botón de esquinas de cada panel (visible cuando hay más de uno), el menú ⋮ o `Ctrl+Alt+Z` lo agranda a pantalla completa y otro toque lo devuelve. Con un panel maximizado, cambiar de foco cambia el maximizado.
+- **Buscar en la terminal**: menú ⋮ o `Ctrl+Alt+S` (Enter = siguiente, Shift+Enter = anterior).
+- **Portapapeles**: *Copiar selección* (menú ⋮) y *Pegar texto…* usan el portapapeles real cuando el navegador lo permite (HTTPS de confianza); si no, el pegado cae al diálogo de siempre.
+- **Rutas clicables**: tocar una ruta absoluta (o `~/…`) en la salida de la terminal abre el explorador en esa carpeta y resalta el archivo.
+- **Lanzadores**: menú ⋮ → *Lanzadores…* (o `Ctrl+Alt+L`). Guardan comandos con un nombre: se ejecutan en el panel actual o en una **sesión nueva con un panel por línea** (por ejemplo, tres paneles ya conectados a donde trabajás). Se guardan en el servidor, por usuario.
+- **App instalable**: con HTTPS de confianza (certificado propio instalado en el dispositivo) el navegador ofrece *Instalar app*: se abre a pantalla completa, sin barra de URL.
 - **Registro de actividad**: menú ⋮ → *Registro de actividad*. Muestra la auditoría (ver abajo) con filtros (alertas, accesos, comandos, archivos…), búsqueda y modo "en vivo". Los intentos fallidos y bloqueos se marcan en rojo.
 - **Celular**: barra inferior siempre visible, sin scroll horizontal, con teclado (mostrar/ocultar), Ctrl, Enter y las cuatro flechas. El botón `^` despliega el resto: Esc, Tab, Alt, Home/End, PgUp/PgDn, símbolos frecuentes (`| ~ / - _ \`) y ^C ^D ^Z ^L. Ctrl y Alt: un toque = próxima tecla, dos = fijo. La barra no abre ni cierra el teclado del teléfono, así que sirve también para navegar historial y enviar con Enter sin teclado. Menú ⋮: cerrar panel, fuente, "Pegar texto…" (la API del portapapeles no está disponible por HTTP sin TLS).
 - **Atajos de teclado (configurables)**: menú ⋮ → *Atajos de teclado…*. Hacés clic en una acción, presionás la combinación que querés y listo. Cada usuario guarda los suyos en el servidor (`data/prefs.json`, ignorado por git), así que valen desde cualquier navegador y el repo no impone ninguno. Acciones disponibles: nueva sesión, dividir a la derecha / hacia abajo, cerrar panel, renombrar sesión, **ciclar entre paneles** (siguiente / anterior), mover el foco por dirección, sesión siguiente / anterior, ir a la sesión 1…9, abrir/cerrar archivos y tamaño de fuente. Para cada una se puede quitar el atajo (✕) o volver al valor por defecto (↺).
@@ -100,6 +110,10 @@ Reiniciar el servicio **no** cierra las terminales ni tu sesión de login (ver *
   Reglas: la combinación debe incluir Ctrl, Alt o Meta (o ser Shift + tecla especial como PgUp, flechas o F1…, o una tecla F sola); se rechazan las que interfieren con escribir (una tecla sola, Shift + letra) o con la terminal (Ctrl + letra: Ctrl+C, Ctrl+D…). Si asignás una combinación que ya usa otra acción, se la quita a la otra y te avisa.
 
   > ⚠️ **Los navegadores reservan algunas combinaciones** y la página no puede interceptarlas: `Ctrl+T`, `Ctrl+N`, `Ctrl+W`, `Ctrl+Shift+T/N/W`, `Ctrl+Tab`, `Ctrl+PgUp/PgDn`, `Alt+F4` y todo lo que incluya la tecla Meta/Windows. Si asignás una, el diálogo te lo advierte; es probable que no funcione en una pestaña normal. Elegí otra (por ejemplo con Alt).
+
+## Suspensión de la PC
+
+Mientras haya alguien conectado, webterm pide que la PC **no se suspenda por inactividad** (el bloqueo se renueva solo y se libera al desconectarte; en *Estado del equipo* aparece como "bloqueada"). Usa `gnome-session-inhibit` y, si no está, `systemd-inhibit` (en algunos equipos polkit lo rechaza: el servidor lo avisa en el log y desactiva la función). Solo evita la suspensión automática: cerrar la tapa o suspender a mano no se bloquea. Se desactiva con `WEBTERM_NO_INHIBIT=1`.
 
 ## Persistencia de sesiones
 
@@ -134,6 +148,15 @@ Como el certificado no lo firma una entidad pública, el navegador muestra una a
 
 (Los nombres de los menús varían según el dispositivo y la versión.) Tené en cuenta que quien tenga `data/tls/ca-key.pem` puede emitir certificados que esos dispositivos aceptarían: esa clave no sale del servidor (permisos 600, ignorada por git). Con HTTPS activo funcionan también el portapapeles del navegador y las demás APIs que exigen un contexto seguro. El certificado del servidor dura 825 días: regeneralo con `node setup.js tls --force` (la autoridad se regenera también, así que habrá que volver a instalarla).
 
+### Segundo factor
+
+Hay dos formas, combinables. Con cualquiera activa, después de la contraseña se pide un código:
+
+- **App de códigos (TOTP)**: `node setup.js totp <usuario>` muestra un **código QR** en la terminal (negro sobre blanco, legible con cualquier tema) para escanearlo con Google Authenticator, Aegis, Authy, etc., más la clave en texto por si preferís cargarla a mano; después pide un código para confirmar. No depende de internet ni del correo. Si el usuario también tiene correo, en la pantalla del código aparece *Enviarme un código por correo* como respaldo. Cada código de la app se acepta una sola vez.
+- **Correo** (descripto abajo).
+
+Además: **Recordar este dispositivo 30 días** (casilla en la pantalla del código) evita pedirlo en ese navegador; cambiar la contraseña con `setup.js user` olvida los dispositivos recordados. Desde el menú ⋮ → *Sesiones y dispositivos* ves qué dispositivos tienen sesión abierta o están recordados y los cerrás uno por uno. Si el usuario tiene correo configurado, un inicio de sesión desde una IP que nunca había usado genera un **aviso por correo** (el primero solo se registra).
+
 ### Segundo factor por correo
 
 1. `node setup.js smtp`: servidor, puerto, cifrado (STARTTLS/SSL), usuario y contraseña. Prueba la conexión antes de guardar. Queda en `data/smtp.json` (permisos 600, ignorado por git; la contraseña SMTP se guarda en texto plano, por eso conviene una cuenta o "contraseña de aplicación" dedicada).
@@ -145,7 +168,7 @@ Con el segundo factor activo, después de la contraseña se envía un código de
 
 Cada evento se guarda como una línea JSON en `data/audit.log` (rota a `.1` a los 10 MB) y también va al journal de systemd:
 
-`login_ok`, `login_fail`, `login_blocked`, `login_2fa_sent`, `login_2fa_fail`, `login_2fa_error`, `logout`, `attach`/`detach` (con IP), `ws_denied`, `pane_new`, `pane_close`, `pane_exit`, `cmd`, las del explorador de archivos (`fs_download`, `fs_upload`, `fs_view`, `fs_mkdir`, `fs_rename`, `fs_delete`, con usuario, IP y ruta) y `proc_kill`. Se pueden consultar desde la interfaz (menú ⋮ → *Registro de actividad*).
+`login_ok`, `login_fail`, `login_blocked`, `login_2fa_sent`, `login_2fa_fail`, `login_2fa_error`, `logout`, `attach`/`detach` (con IP), `ws_denied`, `pane_new`, `pane_close`, `pane_exit`, `cmd`, las del explorador de archivos (`fs_download`, `fs_upload`, `fs_view`, `fs_mkdir`, `fs_rename`, `fs_delete`, con usuario, IP y ruta) `proc_kill`, `fs_copy`, `fs_move`, `fs_edit`, `device_remembered`, `session_revoked`, `login_new_ip` y `alert_mail_error`. Se pueden consultar desde la interfaz (menú ⋮ → *Registro de actividad*).
 
 Los **comandos** se obtienen de un hook de bash (`shell/bashrc.webterm`, que carga tu `~/.bashrc` y reporta cada comando ejecutado). Limitaciones: solo bash; solo lo que corre en la shell local del panel (no dentro de un `ssh` o de vim); y no es a prueba de manipulación — quien tiene la shell puede evadirlo. En las shells de webterm se desactivan `HISTCONTROL`/`HISTIGNORE` para no omitir comandos repetidos ni con espacio inicial. Para auditoría forense, usá auditd.
 
@@ -154,11 +177,11 @@ Los **comandos** se obtienen de un hook de bash (`shell/bashrc.webterm`, que car
 ```
 server.js            servidor HTTP(S)/WebSocket, auth + 2FA, PTYs, archivos, auditoría
 setup.js             usuarios, SMTP, 2FA, certificado HTTPS e instalación del servicio
-lib/                 estado del equipo y registro, miniaturas, correo, demonio de terminales (ptyd) y su cliente
+lib/                 TOTP, estado del equipo y registro, miniaturas, correo, demonio de terminales (ptyd) y su cliente
 public/              cliente (login, app, atajos, sistema, estilos, favicon); sin paso de build
 shell/bashrc.webterm hook de bash para registrar comandos
 data/                (ignorado por git) usuarios, layouts, preferencias, auditoría,
-                     sessions.json, smtp.json, ptyd.sock, tls/ (certificados) y thumbs/ (caché de miniaturas)
+                     sessions.json, devices.json, known-ips.json, smtp.json, ptyd.sock, tls/ (certificados) y thumbs/ (caché de miniaturas)
 ```
 
 ## Problemas comunes

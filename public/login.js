@@ -35,8 +35,12 @@ $('f').addEventListener('submit', (e) => {
       const r = await post('/login', { user: fd.get('user'), password: fd.get('password') });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.need2fa) {
-        token = j.token; $('hint2').textContent = `Te enviamos un código de 6 dígitos a ${j.hint}. Vence en 10 minutos.`;
-        $('err2').textContent = ''; $('f2').code.value = ''; cooldown($('resend'), 30); showStep(2); return;
+        token = j.token; $('err2').textContent = ''; $('f2').code.value = ''; $('remember').checked = false;
+        if (j.method === 'totp') { // código de la app: no se envía nada; el correo queda como respaldo
+          $('hint2').textContent = 'Ingresá el código de 6 dígitos de tu app de autenticación.';
+          const rs = $('resend'); clearInterval(cdTimer); rs.hidden = !j.canEmail; rs.disabled = false; rs.textContent = 'Enviarme un código por correo';
+        } else { $('hint2').textContent = `Te enviamos un código de 6 dígitos a ${j.hint}. Vence en 10 minutos.`; $('resend').hidden = false; cooldown($('resend'), 30); }
+        showStep(2); return;
       }
       if (r.ok) { location.replace('/'); return new Promise(() => {}); } // se queda cargando hasta que cambie la página
       err.textContent = j.error || 'Error';
@@ -49,7 +53,7 @@ $('f2').addEventListener('submit', (e) => {
   const err = $('err2'); err.textContent = '';
   return withLoading(e.target, e.target.querySelector('button[type=submit]'), 'Verificando…', null, async () => {
     try {
-      const r = await post('/login/verify', { token, code: $('f2').code.value.trim() });
+      const r = await post('/login/verify', { token, code: $('f2').code.value.trim(), remember: $('remember').checked });
       if (r.ok) { location.replace('/'); return new Promise(() => {}); }
       const j = await r.json().catch(() => ({}));
       err.textContent = j.error || 'Error';
@@ -64,11 +68,11 @@ $('resend').addEventListener('click', async () => {
   const sent = await withLoading($('f2'), $('resend'), 'Enviando…', null, async () => {
     try {
       const r = await post('/login/resend', { token }); const j = await r.json().catch(() => ({}));
-      if (r.ok) { err.textContent = 'Código reenviado.'; return true; }
+      if (r.ok) { err.textContent = `Te enviamos un código a ${j.hint}.`; return true; }
       err.textContent = j.error || 'Error'; if (j.expired) setTimeout(() => showStep(1), 1800);
     } catch { err.textContent = 'Sin conexión con el servidor.'; }
     return false;
   });
-  if (sent) cooldown($('resend'), 30); // después de restaurar el botón, para que no se pise la espera
+  if (sent) cooldown($('resend'), 30); // después de restaurar el botón // después de restaurar el botón, para que no se pise la espera
 });
 $('back').addEventListener('click', () => { token = null; $('f').password.value = ''; showStep(1); });

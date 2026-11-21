@@ -39,7 +39,7 @@ async function loadStatus() {
     }
     root.append(card('Procesos que más CPU usan', t));
     root.append(card('webterm', line('Terminales abiertas', String(d.webterm.panes)), line('Conexiones', d.webterm.tls ? 'HTTPS' : 'HTTP sin cifrar', d.webterm.tls ? 'ok' : 'warn'),
-      line('Segundo factor por correo', d.webterm.twofa ? 'configurado' : 'sin configurar'), line('Node.js', d.webterm.node)));
+      line('Suspensión de la PC', d.webterm.inhibit ? 'bloqueada mientras estés conectado' : 'permitida', d.webterm.inhibit ? 'ok' : ''), line('Segundo factor por correo', d.webterm.twofa ? 'configurado' : 'sin configurar'), line('Node.js', d.webterm.node)));
     root.scrollTop = keep;
   } catch (e) { if (e.message !== 'auth') { const r = $('#sbody-status'); r.textContent = ''; r.appendChild(h('div', 'fempty', 'No se pudo leer el estado: ' + e.message)); } }
 }
@@ -116,9 +116,9 @@ async function loadLog() {
 function sysTab(tab) {
   SY.tab = tab;
   SY.el.querySelectorAll('[data-st]').forEach((b) => b.classList.toggle('on', b.dataset.st === tab));
-  $('#sbody-status').hidden = tab !== 'status'; $('#sbody-log').hidden = tab !== 'log';
+  for (const t of ['status', 'log', 'sessions']) $('#sbody-' + t).hidden = tab !== t;
   clearInterval(SY.timer); clearInterval(SY.logTimer); $('#sbody-log input[type=checkbox]').checked = false;
-  if (tab === 'status') { loadStatus(); SY.timer = setInterval(loadStatus, 3000); } else loadLog();
+  if (tab === 'status') { loadStatus(); SY.timer = setInterval(loadStatus, 3000); } else if (tab === 'sessions') loadSessions(); else loadLog();
 }
 function openSys(tab) {
   if (!F.el.hidden) return; // un solo panel lateral a la vez
@@ -133,5 +133,26 @@ SY.el.addEventListener('click', (e) => {
   if (e.target.closest('[data-sa=close]')) closeSys();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !SY.el.hidden && !document.querySelector('dialog[open]')) { e.stopPropagation(); closeSys(); } }, true);
+// ---------- sesiones y dispositivos ----------
+function uaSummary(ua) {
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iOS' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Dispositivo';
+  const br = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /node|curl/i.test(ua) ? 'script' : 'navegador';
+  return `${br} en ${os}`;
+}
+const ago = (ms) => { const s = Math.max(0, (Date.now() - ms) / 1000 | 0); return s < 60 ? 'ahora' : s < 3600 ? `hace ${s / 60 | 0} min` : s < 86400 ? `hace ${s / 3600 | 0} h` : `hace ${s / 86400 | 0} d`; };
+async function loadSessions() {
+  try {
+    const d = await api('GET', '/api/sessions'), root = $('#sbody-sessions'); root.textContent = '';
+    const item = (x, kind) => {
+      const row = h('div', 'sline sess'); const left = h('div'); left.append(h('b', '', uaSummary(x.ua) + (x.current ? '  · este dispositivo' : '')), h('small', '', `${x.ip || '?'} · ${kind === 'device' ? 'recordado hasta ' + new Date(x.exp).toLocaleDateString() : 'activa ' + ago(x.last)}`));
+      const b = h('button', x.current ? '' : 'kill', kind === 'device' ? 'Olvidar' : (x.current ? 'Cerrar sesión' : 'Cerrar'));
+      b.onclick = async () => { try { await api('POST', '/api/sessions/revoke', { id: x.id, kind }); if (x.current) location.href = '/login'; else loadSessions(); } catch (e) { alert(e.message); } };
+      row.append(left, b); return row;
+    };
+    root.append(card('Sesiones abiertas', ...(d.sessions.length ? d.sessions.sort((a, b) => b.last - a.last).map((x) => item(x, 'session')) : [h('div', 'fempty', 'Ninguna')])));
+    root.append(card('Dispositivos recordados (entran sin pedir el código)', ...(d.devices.length ? d.devices.map((x) => item(x, 'device')) : [h('div', 'fempty', 'Ninguno')])));
+  } catch (e) { if (e.message !== 'auth') $('#sbody-sessions').textContent = 'No se pudo leer: ' + e.message; }
+}
+actions.sessions = () => (SY.el.hidden || SY.tab !== 'sessions' ? openSys('sessions') : closeSys());
 actions.status = () => (SY.el.hidden || SY.tab !== 'status' ? openSys('status') : closeSys());
 actions.log = () => (SY.el.hidden || SY.tab !== 'log' ? openSys('log') : closeSys());

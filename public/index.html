@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#1e1f29">
 <title>webterm</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/favicon.svg">
 <link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
 <link rel="stylesheet" href="/style.css">
@@ -22,6 +23,10 @@
   <button data-act="menu" title="Más" aria-label="Menú"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
 </header>
 <div id="menu" hidden>
+  <button data-act="toggleZoom">Maximizar / restaurar panel</button>
+  <button data-act="search">Buscar en la terminal</button>
+  <button data-act="copy">Copiar selección</button>
+  <button data-act="launchers">Lanzadores…</button>
   <button data-act="closePane">Cerrar panel</button>
   <button data-act="renameSession">Renombrar sesión</button>
   <button data-act="paste">Pegar texto…</button>
@@ -29,6 +34,7 @@
   <button data-act="fontDown">Fuente −</button>
   <button data-act="status">Estado del equipo</button>
   <button data-act="log">Registro de actividad</button>
+  <button data-act="sessions">Sesiones y dispositivos</button>
   <button data-act="shortcuts">Atajos de teclado…</button>
   <button data-act="logout">Salir</button>
 </div>
@@ -76,19 +82,25 @@
     <button data-fa="home">Inicio</button>
     <button data-fa="hidden" id="fhidden">Ocultos</button>
     <button data-fa="refresh">Actualizar</button>
+    <button data-fa="select">Seleccionar</button>
+    <button data-fa="sort" id="fsort">Orden: Nombre</button>
+    <button data-fa="paste" id="fpaste" hidden></button>
   </div>
+  <div class="fsrow"><input id="fsearch" type="search" placeholder="Filtrar · Enter busca en subcarpetas" autocomplete="off" spellcheck="false"></div>
   <div id="fmsg" hidden></div>
   <div id="flist"></div>
+  <div id="fsel" hidden><span id="fselcount"></span><button data-fa="selall">Todo</button><button data-fa="selcopy">Copiar</button><button data-fa="selcut">Cortar</button><button data-fa="seldl">Bajar .zip</button><button data-fa="seldel" class="del">Borrar</button><button data-fa="selcancel">✕</button></div>
   <div id="fup"></div>
   <div id="fdrop">Soltá los archivos: se suben a la carpeta actual, o a la carpeta sobre la que los sueltes</div>
   <input type="file" id="fpick" multiple hidden>
 </section>
 <section id="sys" hidden aria-label="Sistema">
   <div class="fhead">
-    <div class="stabs"><button data-st="status" class="on">Estado</button><button data-st="log">Registro</button></div>
+    <div class="stabs"><button data-st="status" class="on">Estado</button><button data-st="log">Registro</button><button data-st="sessions">Sesiones</button></div>
     <button data-sa="close" title="Cerrar" aria-label="Cerrar">✕</button>
   </div>
   <div id="sbody-status" class="sbody"></div>
+  <div id="sbody-sessions" class="sbody" hidden></div>
   <div id="sbody-log" class="sbody slogwrap" hidden>
     <div id="slogbar"></div>
     <div id="slog"></div>
@@ -121,8 +133,11 @@
 <script src="/vendor/xterm/lib/xterm.js"></script>
 <script src="/vendor/fit/lib/addon-fit.js"></script>
 <script src="/vendor/links/lib/addon-web-links.js"></script>
+<script src="/vendor/search/lib/addon-search.js"></script>
 <script src="/app.js"></script>
 <script src="/shortcuts.js"></script>
 <script src="/system.js"></script>
+<script src="/extras.js"></script>
+<script src="/files2.js"></script>
 </body>
 </html>

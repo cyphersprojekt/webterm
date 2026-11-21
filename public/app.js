@@ -77,6 +77,7 @@ function createPaneView(id) {
   enableTouchScroll(pane);
   new ResizeObserver(() => refit(pane)).observe(el);
   panes.set(id, pane);
+  if (window.onPaneCreated) onPaneCreated(pane);
   connect(pane);
   return pane;
 }
@@ -254,6 +255,7 @@ function paneExited(id) {
   if (!s) return;
   const order = leaves(s.root);
   s.root = removeLeaf(s.root, id);
+  if (s.zoom === id) s.zoom = null;
   if (!s.root) {
     sessions = sessions.filter((x) => x !== s);
     if (!sessions.length) return newSession();
@@ -268,6 +270,7 @@ function focusPane(id) {
   const s = sessions.find((x) => leaves(x.root).includes(id)); if (!s) return;
   const changed = s.focus !== id;
   s.focus = id;
+  if (s.zoom && changed && s.id === active) { s.zoom = id; render(); return; } // con un panel maximizado, cambiar de foco cambia el maximizado
   document.querySelectorAll('.pane').forEach((el) => el.classList.toggle('focus', el === panes.get(id)?.el));
   panes.get(id)?.term.focus();
   if (changed) saveLayout();
@@ -312,7 +315,9 @@ function render() {
   // stage
   while (stage.firstChild) stage.firstChild.remove(); // los panes se re-adjuntan, no se destruyen
   const s = curSession(); if (!s) return;
-  stage.appendChild(build(s.root));
+  const zoomed = s.zoom && leaves(s.root).includes(s.zoom);
+  stage.classList.toggle('multi', zoomed || leaves(s.root).length > 1); stage.classList.toggle('zoomed', !!zoomed);
+  stage.appendChild(zoomed ? build({ pane: s.zoom }) : build(s.root));
   requestAnimationFrame(() => { panes.forEach(refit); focusPane(s.focus); });
   saveLayout();
 }
@@ -449,13 +454,13 @@ function frender() {
   ub.title = 'Subir archivos a ' + F.cur;
   // listado
   F.list.textContent = '';
-  const rows = F.entries.filter((e) => F.hidden || !e.name.startsWith('.'))
-    .sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  const rows = window.fRows ? fRows() : F.entries.filter((e) => F.hidden || !e.name.startsWith('.'));
   if (!rows.length) { const d = document.createElement('div'); d.className = 'fempty'; d.textContent = 'Carpeta vacía'; F.list.appendChild(d); }
   for (const e of rows) {
     const full = joinPath(F.cur, e.name);
     const row = document.createElement('div');
     row.className = 'frow ' + (e.dir ? 'dir' : 'file') + (e.broken ? ' broken' : '');
+    if (window.fRowDecor) fRowDecor(e, full, row);
     const kind = e.dir || e.broken ? null : thumbKind(e.name);
     if (kind) {
       const box = document.createElement('div'); box.className = 'fthumb' + (kind === 'image' ? ' zoom' : '');
@@ -472,7 +477,7 @@ function frender() {
     const b = document.createElement('b'); b.textContent = e.name + (e.link ? ' →' : '');
     const sm = document.createElement('small'); sm.textContent = e.broken ? 'enlace roto' : (e.dir ? '' : fmtSize(e.size) + ' · ') + fmtDate(e.mtime);
     nm.append(b, sm); row.appendChild(nm);
-    row.onclick = () => { if (e.broken) return; if (e.dir) fnav(full); else fdownload(full); };
+    row.onclick = () => { if (F.sel) return fToggle(e, row); if (e.broken) return; if (e.dir) fnav(full); else fdownload(full); };
     const acts = document.createElement('div'); acts.className = 'acts';
     const btn = (title, svg, fn, cls) => {
       const x = document.createElement('button'); x.title = title; x.setAttribute('aria-label', title); if (cls) x.className = cls;
@@ -484,6 +489,7 @@ function frender() {
       btn('Escribir la ruta en la terminal', FI.ins, () => finsert(full));
       btn(e.dir ? 'Descargar como .tar.gz' : 'Descargar', FI.down, () => fdownload(full));
     }
+    if (window.fRowExtras) fRowExtras(e, full, btn);
     btn('Renombrar', FI.edit, () => frename(e, full));
     btn('Borrar', FI.trash, () => fdelete(e, full), 'del');
     row.appendChild(acts);
@@ -615,11 +621,11 @@ function fnav(p) {
   F.depth++; history.pushState({ wt: 'files', d: F.depth, path: p || null }, '');
   fload(p);
 }
-function openFiles() { // siempre abre en el home
+function openFiles(startPath) { // abre en el home (o en la ruta pedida, p. ej. al tocar una ruta de la salida)
   const sy = $('#sys'); if (sy && !sy.hidden) return; // un solo panel lateral a la vez
   if (!F.caps) fapi('GET', '/api/capabilities').then((c) => { F.caps = c.thumbs || {}; if (!F.el.hidden && F.cur) frender(); }).catch(() => { F.caps = {}; });
   F.el.hidden = false; F.depth = 1; history.pushState({ wt: 'files', d: 1, path: null }, '');
-  fload('');
+  fload(startPath || '');
 }
 function hideFiles() { if (!F.el.hidden) { F.el.hidden = true; panes.get(focusedId())?.term.focus(); } }
 function closeFiles() { const d = F.depth; F.depth = 0; hideFiles(); if (d) history.go(-d); }
